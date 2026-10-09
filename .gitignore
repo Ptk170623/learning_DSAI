@@ -1,0 +1,19 @@
+# Generated data - regenerate with anonymize/anonymize_data.py (see README.md).
+# The mapping file is private NO MATTER WHAT - never remove this line.
+data/_MAPPING_PRIVATE.xlsx
+
+# The anonymized parquet files ARE safe to share (no real names/IDs left in
+# them - see anonymize/anonymize_data.py docstring and README.md), but they
+# are still generated output, not source - ignored by default. Remove this
+# line if you deliberately want to commit a snapshot of the practice data.
+data/*.parquet
+
+__pycache__/
+*.pyc
+.streamlit/secrets.toml
+
+# Supabase credentials for anonymize_data.py --upload-supabase live OUTSIDE
+# this project (C:\Users\PatrickdaSilvaLessa.AzureAD\key\da_learn\.env, see
+# .env.example and CAMINHO_ENV in anonymize_data.py) - this line is just a
+# safety net in case a .env ever ends up here too.
+.env
