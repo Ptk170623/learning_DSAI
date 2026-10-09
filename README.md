@@ -55,6 +55,13 @@ month-to-month variability of the app's own 660 metrics against its fixed
 NEUTRAL / SLIGHTLY / ABOVE bands. Its logic lives in `variability_estimates.py`;
 `estimates_of_variability_report.md` is included and `STUDY_PACK.md` now has four parts.
 
+An eighth page, **Percentiles and boxplots**, builds boxplots from the numeric columns
+(box, median line, whiskers and caps, 1.5 x IQR fences, outliers), shows how quartiles are
+located (position and interpolation, six calculation methods), compares groups with boxplots, and
+tests the project's own upstream flag (`POSOLOGIA_SUSPEITA`) against a per-product upper Tukey fence of
+`DIAS_ESTOQUE`. Its logic lives in `boxplot_percentiles.py`;
+`percentiles_and_boxplots_report.md` is included and `STUDY_PACK.md` now has five parts.
+
 ## How it fits together
 
 ```
@@ -213,4 +220,6 @@ an empty result on read.
   (pure pandas, no Streamlit).
 - `variability_estimates.py` — estimates-of-variability analysis for its page
   (pure pandas, no Streamlit).
-- `data_app_gestao.py` — the Streamlit UI (7 pages).
+- `boxplot_percentiles.py` — percentiles and boxplots analysis for its page
+  (pure pandas, no Streamlit).
+- `data_app_gestao.py` — the Streamlit UI (8 pages).

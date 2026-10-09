@@ -15,9 +15,11 @@ Usage (from this folder):
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 
+import boxplot_percentiles
 import data_types_profile
 import location_estimates
 import tidy_rectangular
@@ -1512,6 +1514,230 @@ def page_estimates_of_variability() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Percentiles and boxplots
+# ---------------------------------------------------------------------------
+
+@st.cache_data(ttl=600, show_spinner="Loading every table and computing percentiles, fences and group boxplots (first load can take minutes)...")
+def _cached_boxplots() -> tuple[data_types_profile.Profile, boxplot_percentiles.BoxplotResult]:
+    """Same tables as the other profile pages; the cached value holds only
+    counts and aggregates (percentiles, fences) - never raw rows."""
+    tables = _load_profile_tables()
+    profile = data_types_profile.profile_tables(tables)
+    return profile, boxplot_percentiles.analyze(tables, profile)
+
+
+def _boxplot_chart(frame: pd.DataFrame, label: str, height: int):
+    """One boxplot per row of `frame` from precomputed numbers: whiskers (rule), box Q1-Q3 (bar), median line
+    (tick), caps (ticks), fences (dashed rules), the mean (cross) and the largest value when it is an outlier."""
+    import altair as alt
+
+    non_negative = bool((frame[["q1", "whisker_low", "lower_fence"]].min() >= 0).all()) or bool((frame["whisker_low"] >= 0).all() and (frame["q1"] >= 0).all())
+    scale = alt.Scale(type="symlog" if non_negative else "linear")
+    top_value = float(frame[["max", "whisker_high", "upper_fence"]].max().max()) if "max" in frame else float(frame["whisker_high"].max())
+    ticks = ([0] + [10 ** k for k in range(0, int(np.ceil(np.log10(max(top_value, 10)))) + 1)]) if non_negative else None
+    axis = alt.Axis(grid=False, values=ticks, format=",d", labelOverlap=True) if ticks else alt.Axis(grid=False)
+    base = alt.Chart(frame).encode(y=alt.Y(f"{label}:N", sort=None, title=None, axis=alt.Axis(labelLimit=320)))
+    x = lambda field, title=None: alt.X(f"{field}:Q", scale=scale, title=title, axis=axis)  # noqa: E731
+    whisker = base.mark_rule(color="#8a8a85").encode(x=x("whisker_low", "Value"), x2="whisker_high:Q")
+    box = base.mark_bar(size=20, opacity=0.55, color=_BLUE).encode(x=x("q1"), x2="q3:Q", tooltip=[label, alt.Tooltip("q1:Q", format=",.2f"), alt.Tooltip("median:Q", format=",.2f"), alt.Tooltip("q3:Q", format=",.2f")])
+    median = base.mark_tick(color=_ORANGE, thickness=3, size=26).encode(x=x("median"))
+    caps = base.mark_tick(color="#8a8a85", size=12, thickness=2).encode(x=x("whisker_low")) + base.mark_tick(color="#8a8a85", size=12, thickness=2).encode(x=x("whisker_high"))
+    fences = base.mark_rule(strokeDash=[4, 4], color="#c0392b", opacity=0.6).encode(x=x("upper_fence")) + base.mark_rule(strokeDash=[4, 4], color="#c0392b", opacity=0.6).encode(x=x("lower_fence"))
+    mean = base.mark_point(shape="cross", color="#1baf7a", size=90, strokeWidth=2).encode(x=x("mean"), tooltip=[label, alt.Tooltip("mean:Q", format=",.2f")])
+    top = base.mark_point(shape="diamond", color="#c0392b", filled=True, size=70).encode(
+        x=x("max"), tooltip=[label, alt.Tooltip("max:Q", format=",.2f", title="largest value")])
+    return (fences + whisker + box + caps + median + mean + top).properties(height=height)
+
+
+def page_percentiles_and_boxplots() -> None:
+    import altair as alt
+
+    st.header("Percentiles and boxplots")
+    st.caption(
+        "A boxplot draws five numbers (whisker end, Q1, median, Q3, whisker end) plus the outliers. This page builds them from your own "
+        "numeric columns, shows how the quartiles are calculated, compares groups with boxplots, and checks the Tukey fence your project "
+        "already uses upstream. Only aggregates are shown - never rows or identifier values."
+    )
+    try:
+        profile, result = _cached_boxplots()
+    except RuntimeError as error:
+        st.error(f"Could not load the tables: {error}")
+        return
+    cols = result.columns
+    if cols.empty:
+        st.info("No numeric column to analyse.")
+        return
+    table_label = st.selectbox("Table", [_ALL] + sorted(cols["table"].unique()), key="pb_table")
+    st.caption("The selector filters the column tables and charts; the insights and the report always cover all tables.")
+    cv = _only(cols, table_label).assign(label=lambda d: d["table"] + "." + d["column"])
+
+    # --- 1. Percentile, median, quartiles, IQR ------------------------------------------
+    st.subheader("Percentile, median, quartiles (Q1, Q2, Q3) and IQR")
+    st.caption(
+        "A percentile is the value below which that share of rows falls. The median is the 50th percentile (Q2); Q1 and Q3 are the 25th and "
+        "75th; the IQR is Q3 - Q1, the width of the middle half of the data."
+    )
+    st.dataframe(
+        pd.DataFrame({
+            "Table": cv["table"], "Column": cv["column"], "p1": cv["p1"], "p5": cv["p5"], "p10": cv["p10"], "Q1 (p25)": cv["q1"], "Median (p50)": cv["median"],
+            "Q3 (p75)": cv["q3"], "p90": cv["p90"], "p95": cv["p95"], "p99": cv["p99"], "IQR": cv["iqr"],
+        }),
+        use_container_width=True, hide_index=True,
+        column_config={c: _NUMBER_COLUMN for c in ["p1", "p5", "p10", "Q1 (p25)", "Median (p50)", "Q3 (p75)", "p90", "p95", "p99", "IQR"]},
+    )
+
+    # --- 2. Quartile calculation -----------------------------------------------------------
+    st.subheader("Quartile calculation: position and interpolation")
+    st.caption(
+        "Sort the values. For a share p, the position is (n - 1) x p, counted from 0. If it is not a whole number, the quartile is a weighted "
+        "average of the two neighbouring sorted values: lower + fraction x (upper - lower). This is the default of pandas and numpy; other tools use other rules."
+    )
+    q = _only(result.quartiles, table_label)
+    st.dataframe(
+        pd.DataFrame({
+            "Table": q["table"], "Column": q["column"], "n": q["n"], "Q1 position": q["q1_position"], "Q1 neighbours": q.apply(
+                lambda x: f"{x['q1_below']:,.2f} and {x['q1_above']:,.2f}", axis=1), "Q1 fraction": q["q1_fraction"], "Q1": q["q1_value"],
+            "Methods differ by (% of IQR)": q[["q1_method_gap_pct_iqr", "q3_method_gap_pct_iqr"]].max(axis=1),
+        }),
+        use_container_width=True, hide_index=True,
+        column_config={"n": _UNITS_COLUMN, "Q1 position": st.column_config.NumberColumn(format="%,.2f"), "Q1 fraction": st.column_config.NumberColumn(format="%.2f"),
+                       "Q1": _NUMBER_COLUMN, "Methods differ by (% of IQR)": st.column_config.NumberColumn(format="%.2f%%")},
+    )
+    st.caption("Equal neighbours (ties) mean no interpolation changes the value. Six methods were compared: linear, lower, higher, midpoint, nearest and weibull.")
+    small = result.groups[result.groups["q1_method_gap_pct_iqr"].notna()] if not result.groups.empty else pd.DataFrame()
+    small = _only(small, table_label) if not small.empty else small
+    if not small.empty:
+        small = small.sort_values("n").head(12).assign(label=lambda d: d["measure"] + " / " + d["level"] + " (n=" + d["n"].astype(str) + ")")
+        gap_chart = alt.Chart(small).mark_bar(cornerRadiusTopRight=3, cornerRadiusBottomRight=3, color=_ORANGE).encode(
+            y=alt.Y("label:N", sort=None, title=None, axis=alt.Axis(labelLimit=340)), x=alt.X("q1_method_gap_pct_iqr:Q", title="Q1 differs across the six methods by (% of the group's IQR)"),
+            tooltip=["label", alt.Tooltip("q1_method_gap_pct_iqr:Q", format=".1f")],
+        ).properties(height=26 * len(small) + 50)
+        st.markdown("**The smallest groups** (the method matters most when there are few rows):")
+        st.altair_chart(gap_chart, use_container_width=True)
+
+    # --- 3. Boxplot, whisker and cap, fences, 1.5 x IQR rule ---------------------------------
+    st.subheader("Boxplot, whisker and cap, fences and the 1.5 x IQR rule")
+    st.caption(
+        "Blue box: Q1 to Q3. Orange line: the median. Grey whisker and cap: the most extreme value still inside the fences. Dashed red lines: the "
+        "fences, Q1 - 1.5 x IQR and Q3 + 1.5 x IQR. Green cross: the mean. Red diamond: the largest value, when it is an outlier. "
+        "The value axis is compressed (symmetric log) so the box stays visible next to the extremes."
+    )
+    choice = st.selectbox("Draw the boxplot of", list(cv["label"]), key="pb_column")
+    one = cv[cv["label"] == choice]
+    st.altair_chart(_boxplot_chart(one, "label", 150), use_container_width=True)
+    row = one.iloc[0]
+    st.markdown(
+        f"**{choice}**: box {row['q1']:,.2f} to {row['q3']:,.2f} (IQR {row['iqr']:,.2f}), median {row['median']:,.2f} "
+        + (f"({100 * row['median_in_box']:.0f}% of the way up the box), " if pd.notna(row["median_in_box"]) else "(the IQR is 0, the box is a line), ")
+        + f"fences {row['lower_fence']:,.2f} and {row['upper_fence']:,.2f}, whiskers {row['whisker_low']:,.2f} to {row['whisker_high']:,.2f}; "
+        f"the mean ({row['mean']:,.2f}) is {row['mean_vs_box']}."
+    )
+    st.altair_chart(_boxplot_chart(cv, "label", 38 * len(cv) + 40), use_container_width=True)
+    st.caption("All the numeric columns, each on the same compressed axis.")
+
+    # --- 4. Outlier and robust ---------------------------------------------------------------
+    st.subheader("Outlier and robust (mean vs. median / IQR)")
+    st.caption(
+        "Outliers are values beyond the fences. 'Far out' means beyond 3 x IQR. The median and the IQR ignore outliers (robust); the mean does not: "
+        "when it is outside the box, the typical row and the average row are different things."
+    )
+    long = cv.melt(id_vars="label", value_vars=["outlier_pct", "far_outlier_pct"], var_name="rule", value_name="share")
+    long["rule"] = long["rule"].map({"outlier_pct": "beyond 1.5 x IQR", "far_outlier_pct": "beyond 3 x IQR (far out)"})
+    out_chart = alt.Chart(long).mark_bar().encode(
+        y=alt.Y("label:N", sort=None, title=None, axis=alt.Axis(labelLimit=320)), yOffset="rule:N", x=alt.X("share:Q", title="Share of the column, %"),
+        color=alt.Color("rule:N", title=None, scale=alt.Scale(domain=["beyond 1.5 x IQR", "beyond 3 x IQR (far out)"], range=[_BLUE, _ORANGE])),
+        tooltip=["label", "rule", alt.Tooltip("share:Q", format=".1f")],
+    ).properties(height=34 * len(cv) + 60)
+    st.altair_chart(out_chart, use_container_width=True)
+    st.dataframe(
+        pd.DataFrame({
+            "Table": cv["table"], "Column": cv["column"], "Outliers": cv["outlier_pct"], "Low": cv["low_outlier_pct"], "High": cv["high_outlier_pct"],
+            "Far out": cv["far_outlier_pct"], "Mean": cv["mean"], "Median": cv["median"], "Where the mean falls": cv["mean_vs_box"],
+        }),
+        use_container_width=True, hide_index=True,
+        column_config={c: _PERCENT_COLUMN for c in ["Outliers", "Low", "High", "Far out"]} | {"Mean": _NUMBER_COLUMN, "Median": _NUMBER_COLUMN},
+    )
+
+    # --- 5. Comparing groups with boxplots ------------------------------------------------------
+    st.subheader("Comparing groups with boxplots")
+    st.caption(
+        "One box per group: compare the median lines (centre), the box heights (spread) and the whiskers (extremes). When the boxes overlap, the "
+        "difference between group medians is small next to the natural spread."
+    )
+    summary = _only(result.group_summary, table_label)
+    if summary.empty:
+        st.info("No outcome measure with a categorical grouping column in the selected table.")
+    else:
+        summary = summary.assign(combo=lambda d: d["table"] + " | " + d["measure"] + " by " + d["group_column"])
+        combo = st.selectbox("Compare", list(summary["combo"]), key="pb_combo")
+        s = summary[summary["combo"] == combo].iloc[0]
+        gr = result.groups[(result.groups["table"] == s["table"]) & (result.groups["measure"] == s["measure"]) & (result.groups["group_column"] == s["group_column"])]
+        gr = gr.assign(label=lambda d: d["level"] + " (n=" + d["n"].astype(str) + ")", max=lambda d: d["q3"].where(d["n_high"] == 0, d["whisker_high"]))
+        gr["max"] = gr["whisker_high"]   # no raw maximum is kept per group: the whisker end is the largest value inside the fence
+        st.altair_chart(_boxplot_chart(gr.assign(**{"mean": gr["mean"]}), "label", 60 * len(gr) + 50), use_container_width=True)
+        st.caption("Per group the red diamond marks the whisker end; the exact maximum is not kept. Groups are sorted by their median.")
+        st.markdown(
+            f"**Boxes overlap in {s['boxes_overlap_pct']:.0f}% of the group pairs.** "
+            + (f"Highest median / lowest median: {s['highest_median_over_lowest']:.1f}. " if pd.notna(s["highest_median_over_lowest"]) else "")
+            + (f"Rank correlation between group means and group medians: {s['rank_corr_mean_median']:.2f}. " if pd.notna(s["rank_corr_mean_median"]) else "")
+            + f"Top group by median: {s['top_by_median']}; by mean: {s['top_by_mean']}."
+        )
+        st.dataframe(
+            pd.DataFrame({"Group": gr["level"], "Rows": gr["n"], "Q1": gr["q1"], "Median": gr["median"], "Q3": gr["q3"], "Mean": gr["mean"],
+                          "Outliers": gr["outlier_pct"], "Q1 method gap (% IQR)": gr["q1_method_gap_pct_iqr"]}),
+            use_container_width=True, hide_index=True,
+            column_config={"Rows": _UNITS_COLUMN, "Q1": _NUMBER_COLUMN, "Median": _NUMBER_COLUMN, "Q3": _NUMBER_COLUMN, "Mean": _NUMBER_COLUMN, "Outliers": _PERCENT_COLUMN,
+                           "Q1 method gap (% IQR)": st.column_config.NumberColumn(format="%.1f%%")},
+        )
+        st.dataframe(
+            pd.DataFrame({
+                "Table": summary["table"], "Measure": summary["measure"], "Grouped by": summary["group_column"], "Groups": summary["levels"],
+                "Boxes overlap": summary["boxes_overlap_pct"], "Highest / lowest median": summary["highest_median_over_lowest"],
+                "Rank corr. mean vs median": summary["rank_corr_mean_median"], "Same top group": summary["same_top"],
+            }),
+            use_container_width=True, hide_index=True,
+            column_config={"Boxes overlap": _PERCENT_COLUMN, "Highest / lowest median": st.column_config.NumberColumn(format="%.1f"),
+                           "Rank corr. mean vs median": st.column_config.NumberColumn(format="%.2f")},
+        )
+
+    # --- 6. The project's own Tukey fence ----------------------------------------------------------
+    st.subheader("In this project: a Tukey fence already in use")
+    st.caption(
+        "The README says the Churns section excludes patients flagged by a single upper Tukey fence computed upstream per product. Here the tables are "
+        "tested: does the flag equal 'above Q3 + 1.5 x IQR of a numeric column, inside each category'?"
+    )
+    flags = _only(result.fence_flags, table_label)
+    if flags.empty:
+        st.info("No suspicion-like flag to test in the selected table.")
+    else:
+        st.dataframe(
+            pd.DataFrame({
+                "Table": flags["table"], "Flag": flags["flag"], "Numeric column": flags["numeric"], "Fence per": flags["grouped_by"], "Rows tested": flags["rows_tested"],
+                "Flagged": flags["flagged_pct"], "Above fence": flags["above_fence_pct"], "Both": flags["both_pct"], "Precision": flags["precision_pct"], "Recall": flags["recall_pct"],
+            }),
+            use_container_width=True, hide_index=True,
+            column_config={"Rows tested": _UNITS_COLUMN} | {c: _PERCENT_COLUMN for c in ["Flagged", "Above fence", "Both", "Precision", "Recall"]},
+        )
+        best = flags.iloc[0]
+        if (best["f1"] or 0) >= 60:
+            st.success(f"{best['flag']} matches an upper 1.5 x IQR fence of {best['numeric']} computed per {best['grouped_by']} "
+                       f"(precision {best['precision_pct']:.0f}%, recall {best['recall_pct']:.0f}%): the flag is a boxplot fence.")
+
+    # --- Insights + report ------------------------------------------------------------------------------
+    insights = boxplot_percentiles.build_insights(result)
+    st.subheader("Insights")
+    with st.container(border=True):
+        for number, insight in enumerate(insights, start=1):
+            st.markdown(f"**{number}. {insight.title}** - {insight.finding}")
+            st.markdown(f"- *Risk:* {insight.risk}\n- *Fix:* {insight.fix}")
+    st.subheader("Result report")
+    report = boxplot_percentiles.build_report(result, insights)
+    st.download_button("Download the result report (.md)", report, file_name="percentiles_and_boxplots_report.md", mime="text/markdown")
+    with st.expander("Preview the result report"):
+        st.markdown(report)
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -1524,6 +1750,7 @@ def main() -> None:
         st.Page(page_rectangular_tidy, title="Rectangular data and tidy data", icon="🧮"),
         st.Page(page_estimates_of_location, title="Estimates of location", icon="📍"),
         st.Page(page_estimates_of_variability, title="Estimates of variability", icon="📏"),
+        st.Page(page_percentiles_and_boxplots, title="Percentiles and boxplots", icon="📦"),
     ])
     navigation.run()
 
