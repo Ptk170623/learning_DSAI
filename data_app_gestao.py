@@ -19,6 +19,7 @@ import pandas as pd
 import streamlit as st
 
 import data_types_profile
+import location_estimates
 import tidy_rectangular
 import transform
 
@@ -1070,6 +1071,225 @@ def dash_palette() -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Estimates of location
+# ---------------------------------------------------------------------------
+
+@st.cache_data(ttl=600, show_spinner="Loading every table and computing means, medians and samples (first load can take minutes)...")
+def _cached_location() -> tuple[data_types_profile.Profile, location_estimates.LocationResult]:
+    """Same tables as the other profile pages; the cached value holds only
+    counts and aggregates (means, medians, spreads) - never raw rows."""
+    tables = _load_profile_tables()
+    profile = data_types_profile.profile_tables(tables)
+    return profile, location_estimates.analyze(tables, profile, transform.load_data_660())
+
+
+def page_estimates_of_location() -> None:
+    import altair as alt
+
+    st.header("Estimates of location")
+    st.caption(
+        "For every numeric column the project loads: where is its centre? The mean, the median and the trimmed mean "
+        "answer differently when values are skewed or have outliers; weights and samples change the answer again. "
+        "Only aggregates are shown - never rows or identifier values."
+    )
+    try:
+        profile, result = _cached_location()
+    except RuntimeError as error:
+        st.error(f"Could not load the tables: {error}")
+        return
+    est = result.estimates
+    if est.empty:
+        st.info("No numeric column to analyse.")
+        return
+
+    table_label = st.selectbox("Table", [_ALL] + sorted(est["table"].unique()), key="le_table")
+    st.caption("The selector filters the column tables and charts; the insights and the report always cover all tables.")
+    est_v = _only(est, table_label)
+
+    # --- 1. Estimate of location, sample, estimate --------------------------------
+    st.subheader("Estimate of location, sample, estimate")
+    st.caption(
+        "An estimate of location is one number standing for a column's centre. A different sample gives a different "
+        f"estimate. Here, {location_estimates.SAMPLE_DRAWS} random samples are drawn from each column: the bars show how "
+        "much the sample mean and the sample median move from one sample to the next (std as % of the full-data value)."
+    )
+    samp = _only(result.sampling, table_label)
+    if not samp.empty:
+        bars = samp.assign(label=samp["table"] + "." + samp["column"]).melt(
+            id_vars="label", value_vars=["mean_spread_pct", "median_spread_pct"], var_name="estimate", value_name="spread")
+        bars["estimate"] = bars["estimate"].map({"mean_spread_pct": "sample mean", "median_spread_pct": "sample median"})
+        chart = alt.Chart(bars).mark_bar().encode(
+            y=alt.Y("label:N", title=None, sort=None, axis=alt.Axis(labelLimit=320)), yOffset="estimate:N",
+            x=alt.X("spread:Q", title="Spread between samples (% of the full-data value)"),
+            color=alt.Color("estimate:N", title=None, scale=alt.Scale(domain=["sample mean", "sample median"], range=[_ORANGE, _BLUE])),
+            tooltip=["label", "estimate", alt.Tooltip("spread:Q", format=".1f")],
+        ).properties(height=34 * len(samp) + 60)
+        st.altair_chart(chart, use_container_width=True)
+        st.dataframe(
+            pd.DataFrame({
+                "Table": samp["table"], "Column": samp["column"], "Sample size": samp["sample_size"],
+                "Full-data mean": samp["population_mean"], "Mean range (90% of samples)": samp.apply(
+                    lambda x: f"{x['mean_range_low']:,.2f} to {x['mean_range_high']:,.2f}", axis=1),
+                "Full-data median": samp["population_median"], "Median range (90% of samples)": samp.apply(
+                    lambda x: f"{x['median_range_low']:,.2f} to {x['median_range_high']:,.2f}", axis=1),
+            }),
+            use_container_width=True, hide_index=True,
+            column_config={"Full-data mean": _NUMBER_COLUMN, "Full-data median": _NUMBER_COLUMN},
+        )
+
+    # --- 2. Mean, median, trimmed mean ---------------------------------------------
+    st.subheader("Mean, median, trimmed mean")
+    st.caption(
+        f"The mean shares the total equally, the median is the middle row, the trimmed mean drops the lowest and highest "
+        f"{int(location_estimates.TRIM * 100)}% before averaging. The gap between them says how skewed the column is."
+    )
+    st.dataframe(
+        pd.DataFrame({
+            "Table": est_v["table"], "Column": est_v["column"], "Type": est_v["stat_type"], "Rows": est_v["n"],
+            "Mean": est_v["mean"], "Median": est_v["median"], "Trimmed mean": est_v["trimmed_mean"],
+            "Mean vs median": est_v["mean_vs_median_pct"], "Skew": est_v["skew"],
+        }),
+        use_container_width=True, hide_index=True,
+        column_config={"Rows": _UNITS_COLUMN, "Mean": _NUMBER_COLUMN, "Median": _NUMBER_COLUMN, "Trimmed mean": _NUMBER_COLUMN,
+                       "Mean vs median": st.column_config.NumberColumn(format="%+.0f%%"), "Skew": st.column_config.NumberColumn(format="%.1f")},
+    )
+    gap_chart = alt.Chart(est_v.assign(label=est_v["table"] + "." + est_v["column"])).mark_bar(
+        cornerRadiusTopRight=3, cornerRadiusBottomRight=3, color=_ORANGE).encode(
+        y=alt.Y("label:N", title=None, sort="-x", axis=alt.Axis(labelLimit=320)),
+        x=alt.X("mean_vs_median_pct:Q", title="Mean above (+) or below (-) the median, %"),
+        tooltip=["label", alt.Tooltip("mean_vs_median_pct:Q", format="+.0f")],
+    ).properties(height=30 * len(est_v) + 50)
+    st.altair_chart(gap_chart, use_container_width=True)
+
+    # --- 3. Outlier and robust -------------------------------------------------------
+    st.subheader("Outlier and robust")
+    st.caption(
+        "An outlier is a value far from the rest (here: beyond 1.5 x IQR from the quartiles). An estimate is robust when a few "
+        "outliers barely move it. Bars: how far each estimate moves when the outliers are removed."
+    )
+    rob = est_v.dropna(subset=["mean_shift_pct", "median_shift_pct"])
+    if not rob.empty:
+        rbars = rob.assign(label=rob["table"] + "." + rob["column"], mean=rob["mean_shift_pct"].abs(), median=rob["median_shift_pct"].abs()).melt(
+            id_vars="label", value_vars=["mean", "median"], var_name="estimate", value_name="shift")
+        rchart = alt.Chart(rbars).mark_bar().encode(
+            y=alt.Y("label:N", title=None, sort=None, axis=alt.Axis(labelLimit=320)), yOffset="estimate:N",
+            x=alt.X("shift:Q", title="Change after removing outliers, % (absolute)"),
+            color=alt.Color("estimate:N", title=None, scale=alt.Scale(domain=["mean", "median"], range=[_ORANGE, _BLUE])),
+            tooltip=["label", "estimate", alt.Tooltip("shift:Q", format=".1f")],
+        ).properties(height=34 * len(rob) + 60)
+        st.altair_chart(rchart, use_container_width=True)
+    st.dataframe(
+        pd.DataFrame({
+            "Table": est_v["table"], "Column": est_v["column"], "Outliers": est_v["outlier_pct"], "Max / median": est_v["max_over_median"],
+            "Mean change without them": est_v["mean_shift_pct"], "Median change without them": est_v["median_shift_pct"],
+            "IQR is 0": est_v["degenerate_iqr"],
+        }),
+        use_container_width=True, hide_index=True,
+        column_config={"Outliers": _PERCENT_COLUMN, "Max / median": st.column_config.NumberColumn(format="%,.0f"),
+                       "Mean change without them": st.column_config.NumberColumn(format="%+.1f%%"),
+                       "Median change without them": st.column_config.NumberColumn(format="%+.1f%%")},
+    )
+
+    # --- 4. Weight, weighted mean, weighted median -------------------------------------
+    st.subheader("Weight, weighted mean, weighted median")
+    st.caption(
+        "A weight says how much each value counts. A unit value (money / quantity) averaged plainly treats a one-unit and a "
+        "thousand-unit row alike; weighted by the quantity it equals total money / total quantity."
+    )
+    weights = _only(result.weights, table_label)
+    if weights.empty:
+        st.info("No money / quantity pair in the selected table.")
+    else:
+        st.dataframe(
+            pd.DataFrame({
+                "Table": weights["table"], "Value": weights["value"], "Weight": weights["weight"], "Plain mean": weights["unit_mean"],
+                "Weighted mean": weights["unit_weighted_mean"], "Mean gap": weights["mean_gap_pct"], "Plain median": weights["unit_median"],
+                "Weighted median": weights["unit_weighted_median"], "Median gap": weights["median_gap_pct"],
+                "Total / total": weights["total_ratio_check"],
+            }),
+            use_container_width=True, hide_index=True,
+            column_config={c: _NUMBER_COLUMN for c in ["Plain mean", "Weighted mean", "Plain median", "Weighted median", "Total / total"]}
+            | {"Mean gap": st.column_config.NumberColumn(format="%+.0f%%"), "Median gap": st.column_config.NumberColumn(format="%+.0f%%")},
+        )
+    groups = _only(result.groups, table_label)
+    if not groups.empty:
+        st.markdown("**Group size as the weight** (mean of group means, against the overall mean):")
+        st.dataframe(
+            pd.DataFrame({
+                "Table": groups["table"], "Grouped by": groups["group_column"], "Measure": groups["measure"], "Groups": groups["groups"],
+                "Smallest group": groups["smallest_group"], "Largest group": groups["largest_group"],
+                "Mean of group means": groups["mean_of_group_means"], "Overall mean": groups["overall_mean"],
+                "Weighted by group size": groups["weighted_mean_of_groups"], "Gap": groups["gap_pct"],
+            }),
+            use_container_width=True, hide_index=True,
+            column_config={"Mean of group means": _NUMBER_COLUMN, "Overall mean": _NUMBER_COLUMN, "Weighted by group size": _NUMBER_COLUMN,
+                           "Smallest group": _UNITS_COLUMN, "Largest group": _UNITS_COLUMN, "Gap": st.column_config.NumberColumn(format="%+.0f%%")},
+        )
+
+    # --- 5. Mean versus median: when to use each ------------------------------------------
+    st.subheader("Mean versus median: when to use each")
+    st.caption(
+        "Median (or trimmed mean) to describe a typical row or build a benchmark when data are skewed or have outliers; mean when "
+        "you need a total (mean x rows = total) or the data are symmetric. The rule used per column: skew above 1 or 1%+ outliers."
+    )
+    st.dataframe(
+        pd.DataFrame({"Table": est_v["table"], "Column": est_v["column"], "Suggested estimate": est_v["advice"], "Because": est_v["advice_why"]}),
+        use_container_width=True, hide_index=True,
+    )
+    st.markdown("**In this app: the 660 Analysis \"Summary Measure\" switch** (all blocks; the classification of the month against its benchmark):")
+    summary = result.app_summary
+    if summary.empty:
+        st.info("No 660 sales data to compare.")
+    else:
+        st.caption(
+            f"The app's own function was run for each of the last {int(summary['months_tested'].max())} complete months "
+            f"({summary.attrs['first_month']:%m/%Y} to {summary.attrs['last_month']:%m/%Y}) with Mean and with Median. "
+            "Each cell: the share of months where the classification changes."
+        )
+        base = alt.Chart(summary).encode(
+            x=alt.X("metric:N", title=None, axis=alt.Axis(labelAngle=0)),
+            y=alt.Y("window:N", title="Benchmark window", sort=list(transform.BENCHMARK_WINDOWS.keys())),
+        )
+        heat = base.mark_rect(stroke="white", strokeWidth=2).encode(
+            color=alt.Color("flip_pct:Q", title="% of months changed", scale=alt.Scale(range=["#cfe0f5", "#1c4f94"], domain=[0, 50])),
+            tooltip=["window", "metric", "months_tested", "flips", alt.Tooltip("flip_pct:Q", format=".0f"),
+                     alt.Tooltip("avg_abs_gap_pct:Q", format=".1f", title="avg benchmark gap %")],
+        )
+        text = base.mark_text(fontWeight="bold").encode(
+            text=alt.Text("flip_pct:Q", format=".0f"),
+            color=alt.condition(alt.datum.flip_pct > 25, alt.value("white"), alt.value("#0b0b0b")),
+        )
+        st.altair_chart((heat + text).properties(height=220), use_container_width=True)
+        detail = result.app
+        st.markdown(f"**Latest complete month ({detail.attrs.get('month'):%m/%Y})**, benchmark by measure:")
+        st.dataframe(
+            pd.DataFrame({
+                "Window": detail["window"], "Metric": detail["metric"], "Current": detail["current"], "Mean benchmark": detail["mean_benchmark"],
+                "Median benchmark": detail["median_benchmark"], "Gap": detail["benchmark_gap_pct"], "With Mean": detail["class_mean"],
+                "With Median": detail["class_median"], "Changes": detail["flips"],
+            }),
+            use_container_width=True, hide_index=True,
+            column_config={"Current": _NUMBER_COLUMN, "Mean benchmark": _NUMBER_COLUMN, "Median benchmark": _NUMBER_COLUMN,
+                           "Gap": st.column_config.NumberColumn(format="%+.1f%%")},
+        )
+        if detail.attrs.get("partial_month_skipped"):
+            st.caption("The most recent month in the data is partial (far fewer orders than usual) and was left out of this comparison.")
+
+    # --- Insights + report ----------------------------------------------------------------
+    insights = location_estimates.build_insights(result)
+    st.subheader("Insights")
+    with st.container(border=True):
+        for number, insight in enumerate(insights, start=1):
+            st.markdown(f"**{number}. {insight.title}** - {insight.finding}")
+            st.markdown(f"- *Risk:* {insight.risk}\n- *Fix:* {insight.fix}")
+    st.subheader("Result report")
+    report = location_estimates.build_report(result, insights)
+    st.download_button("Download the result report (.md)", report, file_name="estimates_of_location_report.md", mime="text/markdown")
+    with st.expander("Preview the result report"):
+        st.markdown(report)
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -1080,6 +1300,7 @@ def main() -> None:
         st.Page(page_rep_block_performance, title="Rep Block Performance", icon="🧭"),
         st.Page(page_data_types_profile, title="Data types profile", icon="🧬"),
         st.Page(page_rectangular_tidy, title="Rectangular data and tidy data", icon="🧮"),
+        st.Page(page_estimates_of_location, title="Estimates of location", icon="📍"),
     ])
     navigation.run()
 

@@ -38,6 +38,15 @@ flags compared with the wrong dtype, `groupby` dropping missing keys). Its
 logic lives in `tidy_rectangular.py`; a generated `rectangular_tidy_report.md`
 is included.
 
+A sixth page, **Estimates of location**, compares mean, median and trimmed mean
+for every numeric column, shows how outliers and random samples move each
+estimate (robustness), weighted vs. plain means and medians (a unit value
+weighted by quantity; group means weighted by group size), and runs the app's own
+660 "Summary Measure" (Mean or Median) over the last 12 complete months to show
+how often the choice changes a classification. Its logic lives in
+`location_estimates.py`; a generated `estimates_of_location_report.md` is included,
+and `STUDY_PACK.md` joins all the reports in one file for a tutor chat.
+
 ## How it fits together
 
 ```
@@ -192,4 +201,6 @@ an empty result on read.
   the Data types profile page (pure pandas, testable on its own).
 - `tidy_rectangular.py` — rectangular / tidy-data analysis for its page
   (pure pandas, no Streamlit).
-- `data_app_gestao.py` — the Streamlit UI (5 pages).
+- `location_estimates.py` — estimates-of-location analysis for its page
+  (pure pandas, no Streamlit).
+- `data_app_gestao.py` — the Streamlit UI (6 pages).
