@@ -18,6 +18,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+import data_types_profile
 import transform
 
 st.set_page_config(page_title="Sales Classification (Practice Copy)", layout="wide")
@@ -467,6 +468,292 @@ def page_rep_block_performance() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Data types profile
+# ---------------------------------------------------------------------------
+
+_BLUE, _ORANGE = "#2a78d6", "#eb6834"
+_ALL = "All"
+
+
+@st.cache_data(ttl=600, show_spinner="Loading every table and profiling its columns (first load can take minutes)...")
+def _cached_profile() -> data_types_profile.Profile:
+    """Profiles EVERY table the project loads (transform._REVERSE_RENAME keys)
+    - the cached value holds only counts and aggregates, never raw rows."""
+    tables = {name: transform._ler(name) for name in transform._REVERSE_RENAME}
+    return data_types_profile.profile_tables(tables)
+
+
+def _count_chart(counts: pd.DataFrame):
+    import altair as alt
+    order = [t for t in data_types_profile.STAT_TYPES if t in set(counts["stat_type"])]
+    base = alt.Chart(counts).encode(x=alt.X("stat_type:N", sort=order, title=None, axis=alt.Axis(labelAngle=0)))
+    bars = base.mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
+        y=alt.Y("columns:Q", title="Columns", stack="zero"),
+        color=alt.Color(
+            "stored_type_misleads:N", title="Stored type",
+            scale=alt.Scale(domain=["fits", "misleads"], range=[_BLUE, _ORANGE]),
+        ),
+        tooltip=["stat_type", "stored_type_misleads", "columns"],
+    )
+    totals = base.mark_text(dy=-6).encode(
+        y=alt.Y("total:Q"), text="total:Q",
+    ).transform_aggregate(total="sum(columns)", groupby=["stat_type"])
+    return (bars + totals).properties(height=300)
+
+
+def _matrix_chart(matrix: pd.DataFrame):
+    import altair as alt
+    top = float(matrix["columns"].max())
+    base = alt.Chart(matrix).encode(
+        x=alt.X("stat_type:N", sort=data_types_profile.STAT_TYPES, title="Statistical type (what it means)", axis=alt.Axis(labelAngle=-30, labelOverlap=False)),
+        y=alt.Y("stored_type:N", title="Stored type (dtype)"),
+    )
+    cells = base.mark_rect(stroke="white", strokeWidth=2).encode(
+        color=alt.Color("columns:Q", title="Columns", scale=alt.Scale(range=["#cfe0f5", "#1c4f94"])),
+        tooltip=["stored_type", "stat_type", "columns"],
+    )
+    labels = base.mark_text(fontWeight="bold").encode(
+        text="columns:Q",
+        color=alt.condition(alt.datum.columns > top / 2, alt.value("white"), alt.value("#0b0b0b")),
+    )
+    return (cells + labels).properties(height=40 * max(matrix["stored_type"].nunique(), 3) + 40)
+
+
+def _column_detail(column: data_types_profile.ColumnProfile) -> None:
+    import altair as alt
+    detail = column.detail
+    st.markdown(
+        f"**{column.table}.{column.column}** - stored as `{column.stored_type}`, statistical type "
+        f"**{column.stat_type}** ({column.why})."
+    )
+    if column.mismatch_kind:
+        st.warning(f"The stored type misleads here: {column.mismatch_kind}.")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Missing", f"{column.missing_pct:.1f}%")
+    m2.metric("Distinct values", f"{column.n_distinct:,}")
+    m3.metric("Unique % of non-null", f"{column.unique_pct:.1f}%")
+
+    kind = detail.get("kind")
+    if kind == "numeric":
+        stats = detail["stats"]
+        s1, s2, s3, s4, s5 = st.columns(5)
+        s1.metric("Min", f"{stats['min']:,.2f}")
+        s2.metric("Median", f"{stats['median']:,.2f}")
+        s3.metric("Mean", f"{stats['mean']:,.2f}")
+        s4.metric("Max", f"{stats['max']:,.2f}")
+        s5.metric("Skew", f"{stats['skew']:.2f}")
+        bins = detail["bins"]
+        if column.stat_type == data_types_profile.DISCRETE and (bins["start"] == bins["end"]).all():
+            chart = alt.Chart(bins).mark_bar(color=_BLUE, cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
+                x=alt.X("label:O", sort=alt.EncodingSortField("start"), title=column.column),
+                y=alt.Y("count:Q", title="Observations"), tooltip=["label", "count"],
+            )
+        else:
+            chart = alt.Chart(bins).mark_bar(color=_BLUE).encode(
+                x=alt.X("start:Q", bin="binned", title=column.column), x2="end:Q",
+                y=alt.Y("count:Q", title="Observations"), tooltip=["label", "count"],
+            )
+        st.altair_chart(chart.properties(height=280), use_container_width=True)
+        st.caption(
+            f"Histogram - {stats['zeros_pct']:.1f}% zeros, {stats['negative_pct']:.1f}% negative. "
+            "Whole numbers that count things are discrete; measured values with many distinct values are continuous."
+        )
+    elif kind == "levels":
+        st.caption(f"{detail['n_levels']:,} level(s); the largest holds {detail['largest_level_pct']:.1f}% of the rows.")
+        levels = detail.get("levels")
+        if levels is None:
+            st.info(f"Levels not listed: {detail.get('hidden_reason', 'hidden')}.")
+        else:
+            order = detail["order"] or (
+                list(levels["level"]) if column.stat_type == data_types_profile.BINARY
+                else list(levels.sort_values("count", ascending=False)["level"])
+            )
+            chart = alt.Chart(levels).mark_bar(color=_BLUE, cornerRadiusTopRight=3, cornerRadiusBottomRight=3).encode(
+                y=alt.Y("level:N", sort=order, title=None), x=alt.X("count:Q", title="Observations"),
+                tooltip=["level", "count", alt.Tooltip("pct:Q", format=".1f", title="% of non-null")],
+            )
+            st.altair_chart(chart.properties(height=max(120, 28 * len(levels) + 30)), use_container_width=True)
+            if detail["order"]:
+                st.caption("Ordinal order is **assumed** (not stored anywhere): " + " < ".join(detail["order"]))
+            else:
+                st.dataframe(levels, use_container_width=True, hide_index=True, column_config={"pct": _PERCENT_COLUMN})
+    elif kind == "identifier":
+        i1, i2, i3 = st.columns(3)
+        i1.metric("Duplicate count (repeats beyond the first)", f"{column.duplicates:,}")
+        i2.metric("Values that repeat", f"{detail['values_repeated']:,}")
+        i3.metric("Most repeats of one value", f"{detail['max_repeat']:,}")
+        st.caption("Identifier values are never shown. Unique 100% = one row per entity; anything less means the row is not the entity.")
+    elif kind == "date":
+        if "min" in detail:
+            d1, d2, d3 = st.columns(3)
+            d1.metric("Earliest", f"{detail['min']:%Y-%m-%d}")
+            d2.metric("Latest", f"{detail['max']:%Y-%m-%d}")
+            d3.metric("Distinct months", f"{detail['n_months']:,}")
+    elif column.personal:
+        st.info("Personal-looking or free-text column - only counts are shown.")
+
+
+def page_data_types_profile() -> None:
+    st.header("Data types profile")
+    st.caption(
+        "Every table the project loads, read column by column: how each variable is STORED (dtype) versus what it "
+        "MEANS statistically. Only column names, counts, percentages and aggregates are shown - never raw rows or "
+        "the values of identifier / personal columns."
+    )
+    try:
+        profile = _cached_profile()
+    except RuntimeError as error:
+        st.error(f"Could not load the tables: {error}")
+        return
+    inventory = profile.inventory()
+    if inventory.empty:
+        st.info("No tables loaded.")
+        return
+
+    # --- 1. Overview ---------------------------------------------------------
+    st.subheader("Structured data, variable (column), observation (row) - Overview")
+    st.caption(
+        "Structured data = tables with named columns (variables) and one row (observation) per record. "
+        "Each card is one table."
+    )
+    t1, t2, t3 = st.columns(3)
+    t1.metric("Tables", f"{len(profile.tables)}")
+    t2.metric("Observations (rows)", f"{sum(t.n_rows for t in profile.tables):,}")
+    t3.metric("Variables (columns)", f"{sum(t.n_columns for t in profile.tables):,}")
+    for start in range(0, len(profile.tables), 3):
+        slots = st.columns(3)
+        for slot, table in zip(slots, profile.tables[start:start + 3]):
+            with slot.container(border=True):
+                st.markdown(f"**{table.table}**")
+                a, b = st.columns(2)
+                a.metric("Rows", f"{table.n_rows:,}")
+                b.metric("Columns", f"{table.n_columns:,}")
+                st.caption(
+                    f"Rows = observations, columns = variables. {table.missing_cells_pct:.1f}% empty cells, "
+                    f"{table.duplicate_rows:,} fully duplicated rows."
+                )
+
+    # --- Segmenters ----------------------------------------------------------
+    st.subheader("Segmenters")
+    c1, c2, c3, c4 = st.columns(4)
+    table_label = c1.selectbox("Table", [_ALL] + [t.table for t in profile.tables], key="dtp_table")
+    stored_label = c2.selectbox("Stored type", [_ALL] + sorted(inventory["stored_type"].unique()), key="dtp_stored")
+    stat_label = c3.selectbox(
+        "Statistical type", [_ALL] + [s for s in data_types_profile.STAT_TYPES if s in set(inventory["stat_type"])],
+        key="dtp_stat",
+    )
+    only_mismatches = c4.checkbox("Only mismatches", value=False, key="dtp_mismatch",
+                                  help="Columns where the stored type misleads about the statistical type.")
+    view = inventory
+    if table_label != _ALL:
+        view = view[view["table"] == table_label]
+    if stored_label != _ALL:
+        view = view[view["stored_type"] == stored_label]
+    if stat_label != _ALL:
+        view = view[view["stat_type"] == stat_label]
+    if only_mismatches:
+        view = view[view["mismatch"]]
+    st.caption(f"{len(view):,} of {len(inventory):,} columns match the segmenters (all charts and tables below follow them).")
+    if view.empty:
+        st.info("No column matches these segmenters.")
+        return
+
+    # --- 2. Column inventory -------------------------------------------------
+    st.subheader("Data type, stored vs. statistical type - Column inventory")
+    st.caption(
+        "Stored type = the dtype pandas holds. Statistical type = what the variable is, decided by the rule in "
+        "\"Why\". A warning marks columns where the stored type misleads."
+    )
+    exibir = pd.DataFrame({
+        "Table": view["table"], "Column": view["column"], "Stored type": view["stored_type"],
+        "Statistical type": view["stat_type"], "Why (rule)": view["why"],
+        "Stored type misleads": view["mismatch_kind"].map(lambda k: f"⚠ {k}" if k else ""),
+        "Missing": view["missing_pct"], "Distinct": view["n_distinct"], "Unique": view["unique_pct"],
+    })
+    st.dataframe(
+        exibir, use_container_width=True, hide_index=True,
+        column_config={
+            "Missing": _PERCENT_COLUMN, "Unique": _PERCENT_COLUMN, "Distinct": _UNITS_COLUMN,
+        },
+    )
+
+    # --- 3. Charts -----------------------------------------------------------
+    st.subheader("Statistical type - columns by type")
+    counts = (
+        view.assign(stored_type_misleads=view["mismatch"].map({True: "misleads", False: "fits"}))
+        .groupby(["stat_type", "stored_type_misleads"]).size().rename("columns").reset_index()
+    )
+    st.altair_chart(_count_chart(counts), use_container_width=True)
+
+    st.subheader("Stored type x statistical type")
+    st.caption("Each cell counts columns. Off-diagonal surprises (e.g. an integer dtype in the identifier or binary column) are the mismatches.")
+    matrix = view.groupby(["stored_type", "stat_type"]).size().rename("columns").reset_index()
+    st.altair_chart(_matrix_chart(matrix), use_container_width=True)
+
+    st.subheader("Selected column")
+    s1, s2 = st.columns(2)
+    chosen_table = s1.selectbox("Table", sorted(view["table"].unique()), key="dtp_sel_table")
+    columns_in_table = list(view.loc[view["table"] == chosen_table, "column"])
+    chosen_column = s2.selectbox("Column", columns_in_table, key="dtp_sel_column")
+    _column_detail(profile.get(chosen_table, chosen_column))
+
+    # --- Concept groups ------------------------------------------------------
+    st.subheader("Numeric, categorical (levels) and identifier - by concept")
+    tab_num, tab_cat, tab_id = st.tabs(["Numeric: continuous / discrete", "Categorical: nominal / binary / ordinal", "Identifier"])
+    shown = [profile.get(r.table, r.column) for r in view.itertuples()]
+    with tab_num:
+        rows = [{
+            "Table": c.table, "Column": c.column, "Statistical type": c.stat_type, "Min": c.detail["stats"]["min"],
+            "Median": c.detail["stats"]["median"], "Mean": c.detail["stats"]["mean"], "Max": c.detail["stats"]["max"],
+            "Zeros": c.detail["stats"]["zeros_pct"], "Skew": c.detail["stats"]["skew"],
+        } for c in shown if c.detail.get("stats")]
+        if rows:
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True,
+                         column_config={"Min": _NUMBER_COLUMN, "Median": _NUMBER_COLUMN, "Mean": _NUMBER_COLUMN,
+                                        "Max": _NUMBER_COLUMN, "Zeros": _PERCENT_COLUMN})
+        else:
+            st.info("No continuous or discrete column in the current selection.")
+    with tab_cat:
+        rows = [{
+            "Table": c.table, "Column": c.column, "Statistical type": c.stat_type, "Levels": c.detail["n_levels"],
+            "Largest level": c.detail["largest_level_pct"],
+            "Assumed order (ordinal)": " < ".join(c.detail["order"]) if c.detail.get("order") else "",
+        } for c in shown if c.detail.get("kind") == "levels"]
+        if rows:
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True,
+                         column_config={"Levels": _UNITS_COLUMN, "Largest level": _PERCENT_COLUMN})
+        else:
+            st.info("No nominal, binary or ordinal column in the current selection.")
+    with tab_id:
+        rows = [{
+            "Table": c.table, "Column": c.column, "Stored type": c.stored_type, "Unique": c.unique_pct,
+            "Duplicate count": c.duplicates, "Values that repeat": c.detail.get("values_repeated", 0),
+            "Why identifier": c.why,
+        } for c in shown if c.stat_type == data_types_profile.IDENTIFIER]
+        if rows:
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True,
+                         column_config={"Unique": _PERCENT_COLUMN, "Duplicate count": _UNITS_COLUMN,
+                                        "Values that repeat": _UNITS_COLUMN})
+        else:
+            st.info("No identifier column in the current selection.")
+
+    # --- Insights + report ---------------------------------------------------
+    insights = data_types_profile.build_insights(profile)
+    st.subheader("Insights")
+    st.caption("Computed on ALL tables (not only the current selection). Each finding names its risk and a fix.")
+    with st.container(border=True):
+        for number, insight in enumerate(insights, start=1):
+            st.markdown(f"**{number}. {insight.title}** - {insight.finding}")
+            st.markdown(f"- *Risk:* {insight.risk}\n- *Fix:* {insight.fix}")
+
+    st.subheader("Result report")
+    report = data_types_profile.build_report(profile, insights)
+    st.download_button("Download the result report (.md)", report, file_name="data_types_profile_report.md", mime="text/markdown")
+    with st.expander("Preview the result report"):
+        st.markdown(report)
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -475,6 +762,7 @@ def main() -> None:
         st.Page(page_660_analysis, title="660 Analysis", icon="📈", default=True),
         st.Page(page_rises_drops, title="Rises and Drops", icon="📉"),
         st.Page(page_rep_block_performance, title="Rep Block Performance", icon="🧭"),
+        st.Page(page_data_types_profile, title="Data types profile", icon="🧬"),
     ])
     navigation.run()
 
