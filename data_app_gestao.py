@@ -22,6 +22,7 @@ import data_types_profile
 import location_estimates
 import tidy_rectangular
 import transform
+import variability_estimates
 
 st.set_page_config(page_title="Sales Classification (Practice Copy)", layout="wide")
 
@@ -1290,6 +1291,227 @@ def page_estimates_of_location() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Estimates of variability
+# ---------------------------------------------------------------------------
+
+@st.cache_data(ttl=600, show_spinner="Loading every table and computing spreads, percentiles and samples (first load can take minutes)...")
+def _cached_variability() -> tuple[data_types_profile.Profile, variability_estimates.VariabilityResult]:
+    """Same tables as the other profile pages; the cached value holds only
+    counts and aggregates (spreads, percentiles) - never raw rows."""
+    tables = _load_profile_tables()
+    profile = data_types_profile.profile_tables(tables)
+    return profile, variability_estimates.analyze(tables, profile, transform.load_data_660())
+
+
+def page_estimates_of_variability() -> None:
+    import altair as alt
+
+    st.header("Estimates of variability")
+    st.caption(
+        "How spread out is each numeric column the project loads? The standard deviation, the MAD and the IQR measure it differently, "
+        "and outliers disturb them very differently. Only aggregates are shown - never rows or identifier values."
+    )
+    try:
+        profile, result = _cached_variability()
+    except RuntimeError as error:
+        st.error(f"Could not load the tables: {error}")
+        return
+    spread = result.spread
+    if spread.empty:
+        st.info("No numeric column to analyse.")
+        return
+    table_label = st.selectbox("Table", [_ALL] + sorted(spread["table"].unique()), key="ev_table")
+    st.caption("The selector filters the column tables and charts; the insights and the report always cover all tables.")
+    sp = _only(spread, table_label).assign(label=lambda d: d["table"] + "." + d["column"])
+
+    def grouped_bars(frame, value_vars, names, colors, title, key_axis="label"):
+        long = frame.melt(id_vars=key_axis, value_vars=value_vars, var_name="what", value_name="value")
+        long["what"] = long["what"].map(dict(zip(value_vars, names)))
+        long = long.dropna()
+        return alt.Chart(long).mark_bar().encode(
+            y=alt.Y(f"{key_axis}:N", title=None, sort=None, axis=alt.Axis(labelLimit=320)), yOffset="what:N",
+            x=alt.X("value:Q", title=title),
+            color=alt.Color("what:N", title=None, scale=alt.Scale(domain=names, range=colors)),
+            tooltip=[key_axis, "what", alt.Tooltip("value:Q", format=",.1f")],
+        ).properties(height=max(90, 30 * len(frame) * len(value_vars) // 1 + 50))
+
+    # --- 1. Variability and deviation -----------------------------------------------
+    st.subheader("Variability and deviation")
+    st.caption(
+        "Variability is how spread out the values are. A deviation is the distance of one value from the mean. Deviations around the mean "
+        "always add up to zero, so we square them (variance, standard deviation) or take their absolute value. The coefficient of "
+        "variation (SD / mean) is my addition: it lets you compare columns in different units."
+    )
+    st.dataframe(
+        pd.DataFrame({
+            "Table": sp["table"], "Column": sp["column"], "Rows": sp["n"], "Mean": sp["mean"], "SD": sp["sd"], "CV": sp["cv_pct"],
+            "Sum of deviations": sp["sum_of_deviations"], "Largest deviation (in SD)": sp["largest_deviation_in_sd"],
+        }),
+        use_container_width=True, hide_index=True,
+        column_config={"Rows": _UNITS_COLUMN, "Mean": _NUMBER_COLUMN, "SD": _NUMBER_COLUMN, "CV": _PERCENT_COLUMN,
+                       "Sum of deviations": st.column_config.NumberColumn(format="%.2e"),
+                       "Largest deviation (in SD)": st.column_config.NumberColumn(format="%.1f")},
+    )
+    cv_chart = alt.Chart(sp.dropna(subset=["cv_pct"])).mark_bar(cornerRadiusTopRight=3, cornerRadiusBottomRight=3, color=_BLUE).encode(
+        y=alt.Y("label:N", title=None, sort="-x", axis=alt.Axis(labelLimit=320)), x=alt.X("cv_pct:Q", title="Coefficient of variation (SD / mean), %"),
+        tooltip=["label", alt.Tooltip("cv_pct:Q", format=".0f")],
+    ).properties(height=30 * len(sp) + 50)
+    st.altair_chart(cv_chart, use_container_width=True)
+
+    # --- 2. Variance, SD, degrees of freedom, bias ------------------------------------
+    st.subheader("Variance, standard deviation, degrees of freedom (n - 1) and bias")
+    st.caption(
+        f"The sample variance divides by n - 1 (the degrees of freedom: one is used to estimate the mean). Here {variability_estimates.BIAS_DRAWS:,} "
+        f"random samples of {variability_estimates.BIAS_SAMPLE_SIZE} rows are drawn from each column and the variance is computed both ways: "
+        "bars show how far the average estimate is from the full-data variance (bias). Dividing by n sits near -10%, n - 1 near 0%."
+    )
+    bias = _only(result.bias, table_label).assign(label=lambda d: d["table"] + "." + d["column"])
+    if not bias.empty:
+        st.altair_chart(grouped_bars(bias, ["bias_n_pct", "bias_n_minus_1_pct"], ["divide by n", "divide by n - 1"], [_ORANGE, _BLUE],
+                                     "Average estimate vs full-data variance, %"), use_container_width=True)
+        st.dataframe(
+            pd.DataFrame({
+                "Table": bias["table"], "Column": bias["column"], "Full-data variance": bias["population_variance"],
+                "Average with n": bias["mean_variance_n"], "Average with n - 1": bias["mean_variance_n_minus_1"],
+                "Bias with n": bias["bias_n_pct"], "Bias with n - 1": bias["bias_n_minus_1_pct"], "SD bias (n - 1)": bias["sd_bias_pct"],
+            }),
+            use_container_width=True, hide_index=True,
+            column_config={c: st.column_config.NumberColumn(format="%.4g") for c in ["Full-data variance", "Average with n", "Average with n - 1"]}
+            | {c: st.column_config.NumberColumn(format="%+.0f%%") for c in ["Bias with n", "Bias with n - 1", "SD bias (n - 1)"]},
+        )
+        st.caption("Theory: with n the average sits at -1/n = -10%. Very skewed columns converge slowly, so their simulated bias is noisy. "
+                   "The standard deviation (the square root) stays low even with n - 1, mostly because small samples seldom contain the extreme values.")
+
+    # --- 3. Mean absolute deviation and MAD -----------------------------------------------
+    st.subheader("Mean absolute deviation and MAD (median absolute deviation)")
+    st.caption(
+        "The mean absolute deviation averages |value - mean|. The MAD is the median of |value - median|, so it barely moves with outliers. "
+        "Multiplied by 1.4826 it is comparable with a standard deviation: for bell-shaped data the two agree."
+    )
+    st.dataframe(
+        pd.DataFrame({
+            "Table": sp["table"], "Column": sp["column"], "SD": sp["sd"], "Mean absolute deviation": sp["mean_abs_dev"], "MAD": sp["mad"],
+            "Scaled MAD": sp["mad_scaled"], "SD / scaled MAD": sp["sd_over_mad_scaled"],
+        }),
+        use_container_width=True, hide_index=True,
+        column_config={c: _NUMBER_COLUMN for c in ["SD", "Mean absolute deviation", "MAD", "Scaled MAD"]}
+        | {"SD / scaled MAD": st.column_config.NumberColumn(format="%.1f")},
+    )
+    ratio = sp.dropna(subset=["sd_over_mad_scaled"])
+    if not ratio.empty:
+        ratio_chart = alt.Chart(ratio).mark_bar(cornerRadiusTopRight=3, cornerRadiusBottomRight=3, color=_ORANGE).encode(
+            y=alt.Y("label:N", title=None, sort="-x", axis=alt.Axis(labelLimit=320)), x=alt.X("sd_over_mad_scaled:Q", title="SD / scaled MAD (about 1 for a bell curve)"),
+            tooltip=["label", alt.Tooltip("sd_over_mad_scaled:Q", format=".1f")],
+        ).properties(height=30 * len(ratio) + 50)
+        st.altair_chart(ratio_chart, use_container_width=True)
+    st.caption("Columns with a MAD of 0 are left out of the chart: more than half of their rows share one value.")
+
+    # --- 4. Range, order statistics, percentile, quartile, IQR ---------------------------
+    st.subheader("Range, order statistics, percentile, quartile, IQR")
+    st.caption(
+        "Order statistics are the data sorted from smallest to largest. A percentile is the value below which that share of rows falls; the "
+        "quartiles Q1, median and Q3 are the 25th, 50th and 75th percentiles; the IQR is Q3 - Q1, the width of the middle half. "
+        "The range (max - min) depends on the two most extreme rows only."
+    )
+    st.dataframe(
+        pd.DataFrame({
+            "Table": sp["table"], "Column": sp["column"], "Min": sp["min"], "p5": sp["p5"], "Q1": sp["q1"], "Median": sp["median"], "Q3": sp["q3"],
+            "p95": sp["p95"], "p99": sp["p99"], "Max": sp["max"], "IQR": sp["iqr"], "Range / IQR": sp["range_over_iqr"],
+        }),
+        use_container_width=True, hide_index=True,
+        column_config={c: _NUMBER_COLUMN for c in ["Min", "p5", "Q1", "Median", "Q3", "p95", "p99", "Max", "IQR"]}
+        | {"Range / IQR": st.column_config.NumberColumn(format="%,.0f")},
+    )
+    choices = list(sp["label"])
+    chosen = st.selectbox("Order statistics of", choices, key="ev_column")
+    t_name, c_name = chosen.split(".", 1)
+    curve = result.quantiles[(result.quantiles["table"] == t_name) & (result.quantiles["column"] == c_name)].assign(
+        quartile=lambda d: d["p"].isin([25, 50, 75]))
+    # the value at the 25th percentile is not in QUANTILE_POINTS: add Q1 / Q3 from the spread table
+    row = spread[(spread["table"] == t_name) & (spread["column"] == c_name)].iloc[0]
+    curve = pd.concat([curve, pd.DataFrame([{"table": t_name, "column": c_name, "p": 25, "value": row["q1"], "quartile": True},
+                                            {"table": t_name, "column": c_name, "p": 75, "value": row["q3"], "quartile": True}])]).sort_values("p")
+    non_negative = bool((curve["value"] >= 0).all())
+    curve_chart = alt.Chart(curve).encode(
+        x=alt.X("p:Q", title="Percentile (share of rows at or below)"),
+        y=alt.Y("value:Q", title="Value", scale=alt.Scale(type="symlog" if non_negative else "linear")),
+        tooltip=["p", alt.Tooltip("value:Q", format=",.2f")],
+    )
+    layer = curve_chart.mark_line(color=_BLUE) + curve_chart.mark_point(filled=True, size=70).encode(
+        color=alt.condition("datum.quartile", alt.value(_ORANGE), alt.value(_BLUE)))
+    st.altair_chart(layer.properties(height=300), use_container_width=True)
+    st.caption("Orange points: Q1, median and Q3. " + ("The value axis is compressed (symmetric log) so the small values stay visible next to the extreme ones." if non_negative else ""))
+
+    # --- 5. Robust and outlier -----------------------------------------------------------------
+    st.subheader("Robust and outlier")
+    st.caption(
+        "An estimate is robust when a few outliers barely move it: the IQR and the MAD are, the standard deviation, the variance and the "
+        "range are not. Three outlier rules are compared: more than 3 SD from the mean, beyond 1.5 x IQR from the quartiles (Tukey), and a "
+        "MAD-based modified z-score above 3.5."
+    )
+    st.altair_chart(grouped_bars(sp, ["outlier_z_pct", "outlier_tukey_pct", "outlier_madz_pct"], ["3-SD rule", "Tukey (1.5 x IQR)", "MAD rule"],
+                                 [_ORANGE, _BLUE, "#1baf7a"], "Values flagged as outliers, % of the column"), use_container_width=True)
+    shifts = sp.dropna(subset=["sd_shift_pct"])
+    if not shifts.empty:
+        st.altair_chart(grouped_bars(shifts.assign(sd=shifts["sd_shift_pct"].abs(), iqr=shifts["iqr_shift_pct"].abs(), mad=shifts["mad_shift_pct"].abs()),
+                                     ["sd", "iqr", "mad"], ["SD", "IQR", "MAD"], [_ORANGE, _BLUE, "#1baf7a"],
+                                     "Change after removing the Tukey outliers, % (absolute)"), use_container_width=True)
+    st.dataframe(
+        pd.DataFrame({
+            "Table": sp["table"], "Column": sp["column"], "3-SD rule": sp["outlier_z_pct"], "Tukey": sp["outlier_tukey_pct"], "MAD rule": sp["outlier_madz_pct"],
+            "SD change": sp["sd_shift_pct"], "IQR change": sp["iqr_shift_pct"], "MAD change": sp["mad_shift_pct"], "Max / p99": sp["max_over_p99"],
+        }),
+        use_container_width=True, hide_index=True,
+        column_config={c: _PERCENT_COLUMN for c in ["3-SD rule", "Tukey", "MAD rule"]}
+        | {c: st.column_config.NumberColumn(format="%+.0f%%") for c in ["SD change", "IQR change", "MAD change"]}
+        | {"Max / p99": st.column_config.NumberColumn(format="%,.0f")},
+    )
+
+    # --- 6. Deviation in this app ------------------------------------------------------------------
+    st.subheader("Deviation in this app: the 660 Analysis bands")
+    st.caption(
+        "The app classifies a month by its % deviation from a benchmark with fixed bands: NEUTRAL within 10%, SLIGHTLY within 25%, then 40%. "
+        "These are the real month-to-month spreads of its own metrics, and how often the app's function (Year window, Mean) calls a month NEUTRAL."
+    )
+    app = result.app
+    if app.empty:
+        st.info("No 660 sales data to compare.")
+    else:
+        st.caption(f"Last {int(app['months'].max())} complete months ({app.attrs['first_month']:%m/%Y} to {app.attrs['last_month']:%m/%Y}).")
+        st.dataframe(
+            pd.DataFrame({
+                "Metric": app["metric"], "Months": app["months"], "CV (SD / mean)": app["cv_pct"], "Robust spread (scaled MAD / median)": app["mad_scaled_pct"],
+                "IQR / median": app["iqr_pct"], "NEUTRAL": app["share_neutral_pct"], "SLIGHTLY above/below": app["share_slight_pct"],
+                "Above/below/much": app["share_strong_pct"],
+            }),
+            use_container_width=True, hide_index=True,
+            column_config={c: _PERCENT_COLUMN for c in ["CV (SD / mean)", "Robust spread (scaled MAD / median)", "IQR / median", "NEUTRAL",
+                                                        "SLIGHTLY above/below", "Above/below/much"]},
+        )
+        stack = app.melt(id_vars="metric", value_vars=["share_neutral_pct", "share_slight_pct", "share_strong_pct"], var_name="band", value_name="share")
+        stack["band"] = stack["band"].map({"share_neutral_pct": "NEUTRAL", "share_slight_pct": "SLIGHTLY above/below", "share_strong_pct": "Above/below/much"})
+        band_chart = alt.Chart(stack).mark_bar().encode(
+            y=alt.Y("metric:N", title=None), x=alt.X("share:Q", title="Share of months, %", stack="zero"),
+            color=alt.Color("band:N", title=None, scale=alt.Scale(domain=["NEUTRAL", "SLIGHTLY above/below", "Above/below/much"], range=["#8fb8e8", _BLUE, _ORANGE])),
+            tooltip=["metric", "band", alt.Tooltip("share:Q", format=".0f")],
+        ).properties(height=170)
+        st.altair_chart(band_chart, use_container_width=True)
+
+    # --- Insights + report -----------------------------------------------------------------------------
+    insights = variability_estimates.build_insights(result)
+    st.subheader("Insights")
+    with st.container(border=True):
+        for number, insight in enumerate(insights, start=1):
+            st.markdown(f"**{number}. {insight.title}** - {insight.finding}")
+            st.markdown(f"- *Risk:* {insight.risk}\n- *Fix:* {insight.fix}")
+    st.subheader("Result report")
+    report = variability_estimates.build_report(result, insights)
+    st.download_button("Download the result report (.md)", report, file_name="estimates_of_variability_report.md", mime="text/markdown")
+    with st.expander("Preview the result report"):
+        st.markdown(report)
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -1301,6 +1523,7 @@ def main() -> None:
         st.Page(page_data_types_profile, title="Data types profile", icon="🧬"),
         st.Page(page_rectangular_tidy, title="Rectangular data and tidy data", icon="🧮"),
         st.Page(page_estimates_of_location, title="Estimates of location", icon="📍"),
+        st.Page(page_estimates_of_variability, title="Estimates of variability", icon="📏"),
     ])
     navigation.run()
 

@@ -47,6 +47,14 @@ how often the choice changes a classification. Its logic lives in
 `location_estimates.py`; a generated `estimates_of_location_report.md` is included,
 and `STUDY_PACK.md` joins all the reports in one file for a tutor chat.
 
+A seventh page, **Estimates of variability**, measures how spread out every numeric
+column is: deviation, variance and standard deviation, mean absolute deviation and
+MAD, range, percentiles, quartiles and IQR, with a simulation of the bias of dividing
+by n instead of n - 1, three outlier rules compared (3 SD, Tukey, MAD) and the
+month-to-month variability of the app's own 660 metrics against its fixed
+NEUTRAL / SLIGHTLY / ABOVE bands. Its logic lives in `variability_estimates.py`;
+`estimates_of_variability_report.md` is included and `STUDY_PACK.md` now has four parts.
+
 ## How it fits together
 
 ```
@@ -203,4 +211,6 @@ an empty result on read.
   (pure pandas, no Streamlit).
 - `location_estimates.py` — estimates-of-location analysis for its page
   (pure pandas, no Streamlit).
-- `data_app_gestao.py` — the Streamlit UI (6 pages).
+- `variability_estimates.py` — estimates-of-variability analysis for its page
+  (pure pandas, no Streamlit).
+- `data_app_gestao.py` — the Streamlit UI (7 pages).
