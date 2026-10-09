@@ -18,6 +18,8 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+import data_types_profile
+import tidy_rectangular
 import transform
 
 st.set_page_config(page_title="Sales Classification (Practice Copy)", layout="wide")
@@ -467,6 +469,607 @@ def page_rep_block_performance() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Data types profile
+# ---------------------------------------------------------------------------
+
+_BLUE, _ORANGE = "#2a78d6", "#eb6834"
+_ALL = "All"
+# Tables left out of the profile: closeup is ~265k rows (minutes to load) and is not needed for this study.
+_PROFILE_EXCLUDED_TABLES = {"closeup"}
+
+
+def _read_table_with_retry(name: str, attempts: int = 3) -> pd.DataFrame:
+    """transform._ler with a short retry - a Supabase read can fail transiently
+    (httpx.ReadError) when two page runs load tables at the same time."""
+    import time
+    for attempt in range(1, attempts + 1):
+        try:
+            return transform._ler(name)
+        except RuntimeError:  # missing credentials - retrying cannot help
+            raise
+        except Exception:  # transport errors from the supabase client
+            if attempt == attempts:
+                raise
+            time.sleep(2 * attempt)
+
+
+def _load_profile_tables() -> dict[str, pd.DataFrame]:
+    return {
+        name: _read_table_with_retry(name)
+        for name in transform._REVERSE_RENAME if name not in _PROFILE_EXCLUDED_TABLES
+    }
+
+
+@st.cache_data(ttl=600, show_spinner="Loading every table and profiling its columns (first load can take minutes)...")
+def _cached_profile() -> data_types_profile.Profile:
+    """Profiles every table the project loads (transform._REVERSE_RENAME keys)
+    except _PROFILE_EXCLUDED_TABLES - the cached value holds only counts and
+    aggregates, never raw rows."""
+    return data_types_profile.profile_tables(_load_profile_tables())
+
+
+def _count_chart(counts: pd.DataFrame):
+    import altair as alt
+    order = [t for t in data_types_profile.STAT_TYPES if t in set(counts["stat_type"])]
+    base = alt.Chart(counts).encode(x=alt.X("stat_type:N", sort=order, title=None, axis=alt.Axis(labelAngle=0)))
+    bars = base.mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
+        y=alt.Y("columns:Q", title="Columns", stack="zero"),
+        color=alt.Color(
+            "stored_type_misleads:N", title="Stored type",
+            scale=alt.Scale(domain=["fits", "misleads"], range=[_BLUE, _ORANGE]),
+        ),
+        tooltip=["stat_type", "stored_type_misleads", "columns"],
+    )
+    totals = base.mark_text(dy=-6).encode(
+        y=alt.Y("total:Q"), text="total:Q",
+    ).transform_aggregate(total="sum(columns)", groupby=["stat_type"])
+    return (bars + totals).properties(height=300)
+
+
+def _matrix_chart(matrix: pd.DataFrame):
+    import altair as alt
+    top = float(matrix["columns"].max())
+    base = alt.Chart(matrix).encode(
+        x=alt.X("stat_type:N", sort=data_types_profile.STAT_TYPES, title="Statistical type (what it means)", axis=alt.Axis(labelAngle=-30, labelOverlap=False)),
+        y=alt.Y("stored_type:N", title="Stored type (dtype)"),
+    )
+    cells = base.mark_rect(stroke="white", strokeWidth=2).encode(
+        color=alt.Color("columns:Q", title="Columns", scale=alt.Scale(range=["#cfe0f5", "#1c4f94"])),
+        tooltip=["stored_type", "stat_type", "columns"],
+    )
+    labels = base.mark_text(fontWeight="bold").encode(
+        text="columns:Q",
+        color=alt.condition(alt.datum.columns > top / 2, alt.value("white"), alt.value("#0b0b0b")),
+    )
+    return (cells + labels).properties(height=40 * max(matrix["stored_type"].nunique(), 3) + 40)
+
+
+def _column_detail(column: data_types_profile.ColumnProfile) -> None:
+    import altair as alt
+    detail = column.detail
+    st.markdown(
+        f"**{column.table}.{column.column}** - stored as `{column.stored_type}`, statistical type "
+        f"**{column.stat_type}** ({column.why})."
+    )
+    if column.mismatch_kind:
+        st.warning(f"The stored type misleads here: {column.mismatch_kind}.")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Missing", f"{column.missing_pct:.1f}%")
+    m2.metric("Distinct values", f"{column.n_distinct:,}")
+    m3.metric("Unique % of non-null", f"{column.unique_pct:.1f}%")
+
+    kind = detail.get("kind")
+    if kind == "numeric":
+        stats = detail["stats"]
+        s1, s2, s3, s4, s5 = st.columns(5)
+        s1.metric("Min", f"{stats['min']:,.2f}")
+        s2.metric("Median", f"{stats['median']:,.2f}")
+        s3.metric("Mean", f"{stats['mean']:,.2f}")
+        s4.metric("Max", f"{stats['max']:,.2f}")
+        s5.metric("Skew", f"{stats['skew']:.2f}")
+        bins = detail["bins"]
+        if column.stat_type == data_types_profile.DISCRETE and (bins["start"] == bins["end"]).all():
+            chart = alt.Chart(bins).mark_bar(color=_BLUE, cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
+                x=alt.X("label:O", sort=alt.EncodingSortField("start"), title=column.column),
+                y=alt.Y("count:Q", title="Observations"), tooltip=["label", "count"],
+            )
+        else:
+            chart = alt.Chart(bins).mark_bar(color=_BLUE).encode(
+                x=alt.X("start:Q", bin="binned", title=column.column), x2="end:Q",
+                y=alt.Y("count:Q", title="Observations"), tooltip=["label", "count"],
+            )
+        st.altair_chart(chart.properties(height=280), use_container_width=True)
+        st.caption(
+            f"Histogram - {stats['zeros_pct']:.1f}% zeros, {stats['negative_pct']:.1f}% negative. "
+            "Whole numbers that count things are discrete; measured values with many distinct values are continuous."
+        )
+    elif kind == "levels":
+        st.caption(f"{detail['n_levels']:,} level(s); the largest holds {detail['largest_level_pct']:.1f}% of the rows.")
+        levels = detail.get("levels")
+        if levels is None:
+            st.info(f"Levels not listed: {detail.get('hidden_reason', 'hidden')}.")
+        else:
+            order = detail["order"] or (
+                list(levels["level"]) if column.stat_type == data_types_profile.BINARY
+                else list(levels.sort_values("count", ascending=False)["level"])
+            )
+            chart = alt.Chart(levels).mark_bar(color=_BLUE, cornerRadiusTopRight=3, cornerRadiusBottomRight=3).encode(
+                y=alt.Y("level:N", sort=order, title=None), x=alt.X("count:Q", title="Observations"),
+                tooltip=["level", "count", alt.Tooltip("pct:Q", format=".1f", title="% of non-null")],
+            )
+            st.altair_chart(chart.properties(height=max(120, 28 * len(levels) + 30)), use_container_width=True)
+            if detail["order"]:
+                st.caption("Ordinal order is **assumed** (not stored anywhere): " + " < ".join(detail["order"]))
+            else:
+                st.dataframe(levels, use_container_width=True, hide_index=True, column_config={"pct": _PERCENT_COLUMN})
+    elif kind == "identifier":
+        i1, i2, i3 = st.columns(3)
+        i1.metric("Duplicate count (repeats beyond the first)", f"{column.duplicates:,}")
+        i2.metric("Values that repeat", f"{detail['values_repeated']:,}")
+        i3.metric("Most repeats of one value", f"{detail['max_repeat']:,}")
+        st.caption("Identifier values are never shown. Unique 100% = one row per entity; anything less means the row is not the entity.")
+    elif kind == "date":
+        if "min" in detail:
+            d1, d2, d3 = st.columns(3)
+            d1.metric("Earliest", f"{detail['min']:%Y-%m-%d}")
+            d2.metric("Latest", f"{detail['max']:%Y-%m-%d}")
+            d3.metric("Distinct months", f"{detail['n_months']:,}")
+    elif column.personal:
+        st.info("Personal-looking or free-text column - only counts are shown.")
+
+
+def page_data_types_profile() -> None:
+    st.header("Data types profile")
+    st.caption(
+        "Every table the project loads (except closeup), read column by column: how each variable is STORED (dtype) versus what it "
+        "MEANS statistically. Only column names, counts, percentages and aggregates are shown - never raw rows or "
+        "the values of identifier / personal columns."
+    )
+    try:
+        profile = _cached_profile()
+    except RuntimeError as error:
+        st.error(f"Could not load the tables: {error}")
+        return
+    inventory = profile.inventory()
+    if inventory.empty:
+        st.info("No tables loaded.")
+        return
+
+    # --- 1. Overview ---------------------------------------------------------
+    st.subheader("Structured data, variable (column), observation (row) - Overview")
+    st.caption(
+        "Structured data = tables with named columns (variables) and one row (observation) per record. "
+        "Each card is one table."
+    )
+    t1, t2, t3 = st.columns(3)
+    t1.metric("Tables", f"{len(profile.tables)}")
+    t2.metric("Observations (rows)", f"{sum(t.n_rows for t in profile.tables):,}")
+    t3.metric("Variables (columns)", f"{sum(t.n_columns for t in profile.tables):,}")
+    for start in range(0, len(profile.tables), 3):
+        slots = st.columns(3)
+        for slot, table in zip(slots, profile.tables[start:start + 3]):
+            with slot.container(border=True):
+                st.markdown(f"**{table.table}**")
+                a, b = st.columns(2)
+                a.metric("Rows", f"{table.n_rows:,}")
+                b.metric("Columns", f"{table.n_columns:,}")
+                st.caption(
+                    f"Rows = observations, columns = variables. {table.missing_cells_pct:.1f}% empty cells, "
+                    f"{table.duplicate_rows:,} fully duplicated rows."
+                )
+
+    # --- Segmenters ----------------------------------------------------------
+    st.subheader("Segmenters")
+    c1, c2, c3, c4 = st.columns(4)
+    table_label = c1.selectbox("Table", [_ALL] + [t.table for t in profile.tables], key="dtp_table")
+    stored_label = c2.selectbox("Stored type", [_ALL] + sorted(inventory["stored_type"].unique()), key="dtp_stored")
+    stat_label = c3.selectbox(
+        "Statistical type", [_ALL] + [s for s in data_types_profile.STAT_TYPES if s in set(inventory["stat_type"])],
+        key="dtp_stat",
+    )
+    only_mismatches = c4.checkbox("Only mismatches", value=False, key="dtp_mismatch",
+                                  help="Columns where the stored type misleads about the statistical type.")
+    view = inventory
+    if table_label != _ALL:
+        view = view[view["table"] == table_label]
+    if stored_label != _ALL:
+        view = view[view["stored_type"] == stored_label]
+    if stat_label != _ALL:
+        view = view[view["stat_type"] == stat_label]
+    if only_mismatches:
+        view = view[view["mismatch"]]
+    st.caption(f"{len(view):,} of {len(inventory):,} columns match the segmenters (all charts and tables below follow them).")
+    if view.empty:
+        st.info("No column matches these segmenters.")
+        return
+
+    # --- 2. Column inventory -------------------------------------------------
+    st.subheader("Data type, stored vs. statistical type - Column inventory")
+    st.caption(
+        "Stored type = the dtype pandas holds. Statistical type = what the variable is, decided by the rule in "
+        "\"Why\". A warning marks columns where the stored type misleads."
+    )
+    exibir = pd.DataFrame({
+        "Table": view["table"], "Column": view["column"], "Stored type": view["stored_type"],
+        "Statistical type": view["stat_type"], "Why (rule)": view["why"],
+        "Stored type misleads": view["mismatch_kind"].map(lambda k: f"⚠ {k}" if k else ""),
+        "Missing": view["missing_pct"], "Distinct": view["n_distinct"], "Unique": view["unique_pct"],
+    })
+    st.dataframe(
+        exibir, use_container_width=True, hide_index=True,
+        column_config={
+            "Missing": _PERCENT_COLUMN, "Unique": _PERCENT_COLUMN, "Distinct": _UNITS_COLUMN,
+        },
+    )
+
+    # --- 3. Charts -----------------------------------------------------------
+    st.subheader("Statistical type - columns by type")
+    counts = (
+        view.assign(stored_type_misleads=view["mismatch"].map({True: "misleads", False: "fits"}))
+        .groupby(["stat_type", "stored_type_misleads"]).size().rename("columns").reset_index()
+    )
+    st.altair_chart(_count_chart(counts), use_container_width=True)
+
+    st.subheader("Stored type x statistical type")
+    st.caption("Each cell counts columns. Off-diagonal surprises (e.g. an integer dtype in the identifier or binary column) are the mismatches.")
+    matrix = view.groupby(["stored_type", "stat_type"]).size().rename("columns").reset_index()
+    st.altair_chart(_matrix_chart(matrix), use_container_width=True)
+
+    st.subheader("Selected column")
+    s1, s2 = st.columns(2)
+    chosen_table = s1.selectbox("Table", sorted(view["table"].unique()), key="dtp_sel_table")
+    columns_in_table = list(view.loc[view["table"] == chosen_table, "column"])
+    chosen_column = s2.selectbox("Column", columns_in_table, key="dtp_sel_column")
+    _column_detail(profile.get(chosen_table, chosen_column))
+
+    # --- Concept groups ------------------------------------------------------
+    st.subheader("Numeric, categorical (levels) and identifier - by concept")
+    tab_num, tab_cat, tab_id = st.tabs(["Numeric: continuous / discrete", "Categorical: nominal / binary / ordinal", "Identifier"])
+    shown = [profile.get(r.table, r.column) for r in view.itertuples()]
+    with tab_num:
+        rows = [{
+            "Table": c.table, "Column": c.column, "Statistical type": c.stat_type, "Min": c.detail["stats"]["min"],
+            "Median": c.detail["stats"]["median"], "Mean": c.detail["stats"]["mean"], "Max": c.detail["stats"]["max"],
+            "Zeros": c.detail["stats"]["zeros_pct"], "Skew": c.detail["stats"]["skew"],
+        } for c in shown if c.detail.get("stats")]
+        if rows:
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True,
+                         column_config={"Min": _NUMBER_COLUMN, "Median": _NUMBER_COLUMN, "Mean": _NUMBER_COLUMN,
+                                        "Max": _NUMBER_COLUMN, "Zeros": _PERCENT_COLUMN})
+        else:
+            st.info("No continuous or discrete column in the current selection.")
+    with tab_cat:
+        rows = [{
+            "Table": c.table, "Column": c.column, "Statistical type": c.stat_type, "Levels": c.detail["n_levels"],
+            "Largest level": c.detail["largest_level_pct"],
+            "Assumed order (ordinal)": " < ".join(c.detail["order"]) if c.detail.get("order") else "",
+        } for c in shown if c.detail.get("kind") == "levels"]
+        if rows:
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True,
+                         column_config={"Levels": _UNITS_COLUMN, "Largest level": _PERCENT_COLUMN})
+        else:
+            st.info("No nominal, binary or ordinal column in the current selection.")
+    with tab_id:
+        rows = [{
+            "Table": c.table, "Column": c.column, "Stored type": c.stored_type, "Unique": c.unique_pct,
+            "Duplicate count": c.duplicates, "Values that repeat": c.detail.get("values_repeated", 0),
+            "Why identifier": c.why,
+        } for c in shown if c.stat_type == data_types_profile.IDENTIFIER]
+        if rows:
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True,
+                         column_config={"Unique": _PERCENT_COLUMN, "Duplicate count": _UNITS_COLUMN,
+                                        "Values that repeat": _UNITS_COLUMN})
+        else:
+            st.info("No identifier column in the current selection.")
+
+    # --- Insights + report ---------------------------------------------------
+    insights = data_types_profile.build_insights(profile)
+    st.subheader("Insights")
+    st.caption("Computed on ALL tables (not only the current selection). Each finding names its risk and a fix.")
+    with st.container(border=True):
+        for number, insight in enumerate(insights, start=1):
+            st.markdown(f"**{number}. {insight.title}** - {insight.finding}")
+            st.markdown(f"- *Risk:* {insight.risk}\n- *Fix:* {insight.fix}")
+
+    st.subheader("Result report")
+    report = data_types_profile.build_report(profile, insights)
+    st.download_button("Download the result report (.md)", report, file_name="data_types_profile_report.md", mime="text/markdown")
+    with st.expander("Preview the result report"):
+        st.markdown(report)
+
+
+# ---------------------------------------------------------------------------
+# Rectangular data and tidy data
+# ---------------------------------------------------------------------------
+
+@st.cache_data(ttl=600, show_spinner="Loading every table and checking keys, joins and shapes (first load can take minutes)...")
+def _cached_tidy() -> tuple[data_types_profile.Profile, tidy_rectangular.TidyResult]:
+    """Same tables as the Data types profile page; the cached value holds only
+    counts, percentages, formats and aggregates - never raw rows."""
+    tables = _load_profile_tables()
+    profile = data_types_profile.profile_tables(tables)
+    return profile, tidy_rectangular.analyze(tables, profile)
+
+
+def _only(frame: pd.DataFrame, table: str, column: str = "table") -> pd.DataFrame:
+    return frame if table == _ALL or frame.empty else frame[frame[column] == table]
+
+
+def page_rectangular_tidy() -> None:
+    import altair as alt
+
+    st.header("Rectangular data and tidy data")
+    st.caption(
+        "Every table the project loads (except closeup) checked as rectangular data: what one record is, which columns "
+        "are features or outcomes, whether the tables are tidy, and where pandas can return a wrong number without any "
+        "error. Only counts, percentages, formats and aggregates are shown - never rows or identifier values."
+    )
+    try:
+        profile, result = _cached_tidy()
+    except RuntimeError as error:
+        st.error(f"Could not load the tables: {error}")
+        return
+    if result.shape.empty:
+        st.info("No tables loaded.")
+        return
+
+    table_label = st.selectbox("Table", [_ALL] + list(result.shape["table"]), key="rt_table")
+    st.caption("The selector filters every section below; the insights and the report always cover all tables.")
+
+    # --- 1. Rectangular data, data frame, record, index -------------------------
+    st.subheader("Rectangular data, data frame, record, index")
+    st.caption(
+        "Rectangular data: rows (records) x columns (variables) in a data frame. The index labels the rows; a "
+        "default 0..n-1 index says nothing about the record, so the real identity of a record is its key."
+    )
+    shape = _only(result.shape, table_label)
+    for start in range(0, len(shape), 3):
+        slots = st.columns(3)
+        for slot, row in zip(slots, shape.iloc[start:start + 3].itertuples()):
+            with slot.container(border=True):
+                st.markdown(f"**{row.table}**")
+                a, b = st.columns(2)
+                a.metric("Records (rows)", f"{row.rows:,}")
+                b.metric("Columns", f"{row.columns:,}")
+                st.caption(
+                    f"Index: {row.index_type}{' (default, meaningless)' if row.index_default else ''}. "
+                    f"Record = {row.key if row.key else 'no unique key found'}."
+                )
+    st.dataframe(
+        pd.DataFrame({
+            "Table": shape["table"], "Records": shape["rows"], "Columns": shape["columns"], "Index": shape["index_type"],
+            "Unique key (the record)": shape["key"].replace("", "none found"), "Empty cells": shape["missing_cells_pct"],
+            "Rows > half empty": shape["rows_over_half_missing_pct"], "Duplicate rows": shape["duplicate_rows"],
+        }),
+        use_container_width=True, hide_index=True,
+        column_config={"Records": _UNITS_COLUMN, "Duplicate rows": _UNITS_COLUMN, "Empty cells": _PERCENT_COLUMN,
+                       "Rows > half empty": _PERCENT_COLUMN},
+    )
+    st.caption("The key is the smallest set of up to 3 columns that is unique on every row (a duplicate key is what a "
+               "single ID shows when it is not enough).")
+
+    # --- 2. Feature and outcome -----------------------------------------------
+    st.subheader("Feature and outcome")
+    st.caption(
+        "A feature describes the record; an outcome is what you total or want to explain; a key only names things. "
+        "These roles are assumed from the column type and name - they depend on the question you ask."
+    )
+    roles = _only(result.roles, table_label)
+    counts = roles.groupby(["table", "role"]).size().rename("columns").reset_index()
+    role_chart = alt.Chart(counts).mark_bar(cornerRadiusTopRight=3, cornerRadiusBottomRight=3).encode(
+        y=alt.Y("table:N", title=None), x=alt.X("columns:Q", title="Columns", stack="zero"),
+        color=alt.Color("role:N", title="Role", scale=alt.Scale(domain=["feature", "outcome", "key"],
+                                                                  range=[_BLUE, _ORANGE, "#8a8a85"])),
+        tooltip=["table", "role", "columns"],
+    ).properties(height=40 * max(counts["table"].nunique(), 2) + 40)
+    st.altair_chart(role_chart, use_container_width=True)
+    st.dataframe(
+        pd.DataFrame({"Table": roles["table"], "Column": roles["column"], "Role (assumed)": roles["role"],
+                      "Statistical type": roles["stat_type"], "Why": roles["why"]}),
+        use_container_width=True, hide_index=True,
+    )
+
+    # --- 3. Data matrix and nonrectangular structures ----------------------------
+    st.subheader("Data matrix and nonrectangular data structures")
+    st.caption(
+        "A data matrix is the all-numeric table a model or a matrix routine needs: categoricals must be encoded "
+        "(one-hot) and gaps handled. Nonrectangular structures hold things that do not fit one rectangle."
+    )
+    matrix = _only(result.matrix, table_label)
+    st.dataframe(
+        pd.DataFrame({
+            "Table": matrix["table"], "Numeric columns": matrix["numeric_columns"],
+            "Categorical columns": matrix["categorical_columns"], "Empty (numeric part)": matrix["numeric_missing_pct"],
+            "Rows lost by dropna": matrix["rows_lost_by_dropna_pct"], "One-hot width (all)": matrix["onehot_width"],
+            "One-hot width (<= 50 levels)": matrix["onehot_width_low"],
+        }),
+        use_container_width=True, hide_index=True,
+        column_config={"Empty (numeric part)": _PERCENT_COLUMN, "Rows lost by dropna": _PERCENT_COLUMN,
+                       "One-hot width (all)": _UNITS_COLUMN, "One-hot width (<= 50 levels)": _UNITS_COLUMN},
+    )
+    st.markdown("**Nonrectangular structures in the project's code** (several data frames bundled in one object):")
+    st.dataframe(
+        pd.DataFrame({"Object": result.containers["container"], "Data frames inside": result.containers["data_frames"],
+                      "Frames": result.containers["frames"]}),
+        use_container_width=True, hide_index=True,
+    )
+    nonrect = _only(result.nonrect, table_label)
+    if nonrect.empty:
+        st.success("No cell in the selected tables holds a list, a dict or several delimited values: the stored tables are truly rectangular.")
+    else:
+        st.dataframe(nonrect, use_container_width=True, hide_index=True, column_config={"share_pct": _PERCENT_COLUMN})
+
+    # --- 4. Tidy data -----------------------------------------------------------
+    st.subheader("Tidy data")
+    st.caption(
+        "Tidy: (1) each variable is a column, (2) each observation is a row, (3) each type of observational unit is its "
+        "own table. Rule 3 is checked by functional dependencies: when one identifier fixes other columns, those columns "
+        "belong to another unit that is repeated on every row."
+    )
+    dependencies = _only(result.dependencies, table_label)
+    if dependencies.empty:
+        st.success("No identifier fixes other columns in the selected tables.")
+    else:
+        st.dataframe(
+            pd.DataFrame({
+                "Table": dependencies["table"], "Identifier": dependencies["determinant"], "Unique": dependencies["unique_pct"],
+                "Repeated values": dependencies["repeated_groups"], "Columns it fixes": dependencies["n_dependents"],
+                "Which columns": dependencies["dependents"],
+            }),
+            use_container_width=True, hide_index=True,
+            column_config={"Unique": _PERCENT_COLUMN, "Repeated values": _UNITS_COLUMN},
+        )
+    composite = _only(result.composite, table_label)
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("**Rule 1 - several variables in one column**")
+        if composite.empty:
+            st.success("No column mixes two varying variables in a fixed format.")
+        else:
+            st.dataframe(composite, use_container_width=True, hide_index=True, column_config={"share_pct": _PERCENT_COLUMN})
+    with c2:
+        st.markdown("**Rule 1 - wide column groups** (same stem + period or number)")
+        wide = _only(result.wide, table_label)
+        if wide.empty:
+            st.success("No wide-format column groups in the stored tables.")
+        else:
+            st.dataframe(wide, use_container_width=True, hide_index=True)
+
+    # --- 5. Wide and long ----------------------------------------------------------
+    st.subheader("Wide and long")
+    st.caption(
+        "The stored tables are long (a row per event). The app pivots them to wide month matrices to compute benchmarks: "
+        "wide is convenient for arithmetic but exposes every gap as an empty cell."
+    )
+    pivot = _only(result.pivot, table_label)
+    if pivot.empty:
+        st.info("The selected table has no date + category + measure to pivot.")
+    else:
+        st.dataframe(
+            pd.DataFrame({
+                "Table": pivot["table"], "Measure": pivot["measure"], "Rows of the wide table": pivot["category"],
+                "Columns of the wide table": pivot["period"], "Long rows (filled cells)": pivot["long_rows"],
+                "Wide cells": pivot["wide_cells"], "Empty": pivot["empty_pct"],
+            }),
+            use_container_width=True, hide_index=True,
+            column_config={"Long rows (filled cells)": _UNITS_COLUMN, "Wide cells": _UNITS_COLUMN, "Empty": _PERCENT_COLUMN},
+        )
+        chosen = st.selectbox("Show the wide table of", list(pivot["table"]), key="rt_pivot")
+        heat = result.pivot_heat[result.pivot_heat["table"] == chosen].assign(
+            status=lambda d: d["filled"].map({True: "has data", False: "empty"}),
+            month_label=lambda d: d["month"].dt.strftime("%Y-%m"))
+        heat_chart = alt.Chart(heat).mark_rect().encode(
+            x=alt.X("month_label:O", title="Month (columns of the wide table)", sort="ascending",
+                    axis=alt.Axis(labelAngle=-60, labelOverlap="parity")),
+            y=alt.Y("row:O", title="Category (rows of the wide table, labels hidden)", axis=alt.Axis(labels=False, ticks=False)),
+            color=alt.Color("status:N", title=None, scale=alt.Scale(domain=["has data", "empty"], range=[_BLUE, "#d9d9d4"])),
+            tooltip=["month_label", "status"],
+        ).properties(height=320)
+        st.altair_chart(heat_chart, use_container_width=True)
+
+    # --- 6. Dtype and duplicate key ---------------------------------------------------
+    st.subheader("Dtype and duplicate key")
+    st.caption("The dtype decides what an operation means; a duplicate key decides how many rows a join returns.")
+    dtypes = _only(result.dtypes, table_label)
+    dtype_cols = [c for c in dtypes.columns if c.startswith("dtype:")]
+    long_dtypes = dtypes.melt(id_vars="table", value_vars=dtype_cols, var_name="dtype", value_name="columns")
+    long_dtypes["dtype"] = long_dtypes["dtype"].str.replace("dtype:", "", regex=False)
+    long_dtypes = long_dtypes[long_dtypes["columns"] > 0]
+    dtype_chart = alt.Chart(long_dtypes).mark_bar().encode(
+        y=alt.Y("table:N", title=None), x=alt.X("columns:Q", title="Columns", stack="zero"),
+        color=alt.Color("dtype:N", title="Stored type (dtype)", scale=alt.Scale(range=dash_palette())),
+        tooltip=["table", "dtype", "columns"],
+    ).properties(height=40 * max(long_dtypes["table"].nunique(), 2) + 40)
+    st.altair_chart(dtype_chart, use_container_width=True)
+    st.dataframe(
+        pd.DataFrame({"Table": dtypes["table"], "Memory (MB)": dtypes["memory_mb"],
+                      "Saving with category dtype (MB)": dtypes["category_saving_mb"], "Saving": dtypes["saving_pct"]}),
+        use_container_width=True, hide_index=True,
+        column_config={"Memory (MB)": _NUMBER_COLUMN, "Saving with category dtype (MB)": _NUMBER_COLUMN, "Saving": _PERCENT_COLUMN},
+    )
+    id_cols = pd.DataFrame([
+        {"Table": c.table, "Identifier": c.column, "Stored type": c.stored_type, "Unique": c.unique_pct, "Repeats": c.duplicates,
+         "Most repeats of one value": c.detail.get("max_repeat", 0)}
+        for c in profile.columns if c.stat_type == data_types_profile.IDENTIFIER and c.duplicates
+    ])
+    st.markdown("**Duplicate keys** (identifier columns whose values repeat):")
+    id_cols = _only(id_cols, table_label, "Table")
+    st.dataframe(id_cols, use_container_width=True, hide_index=True,
+                 column_config={"Unique": _PERCENT_COLUMN, "Repeats": _UNITS_COLUMN, "Most repeats of one value": _UNITS_COLUMN})
+
+    # --- 7. Silent error ---------------------------------------------------------------
+    st.subheader("Silent error")
+    st.caption("Each check below runs without any error or warning in pandas and still returns a wrong or empty answer.")
+    st.markdown("**1. Merging on a near-unique key alone fans rows out**")
+    fanout = _only(result.fanout, table_label, "left")
+    if fanout.empty:
+        st.success("No merge between the selected tables fans out on a shared identifier.")
+    else:
+        st.dataframe(
+            pd.DataFrame({
+                "Left": fanout["left"], "Right": fanout["right"], "Key used": fanout["key"], "Rows before": fanout["left_rows"],
+                "Rows after": fanout["rows_after"], "Extra rows": fanout["extra_pct"], "Measure": fanout["measure"],
+                "Measure inflated": fanout["measure_inflation_pct"], "Safe key (no fan-out)": fanout["safe_key"],
+            }),
+            use_container_width=True, hide_index=True,
+            column_config={"Rows before": _UNITS_COLUMN, "Rows after": _UNITS_COLUMN, "Extra rows": _PERCENT_COLUMN,
+                           "Measure inflated": _PERCENT_COLUMN},
+        )
+    st.markdown("**2. A flag compared with the wrong dtype matches nothing** (rows matched by each comparison)")
+    flags = _only(result.flags, table_label)
+    st.dataframe(
+        pd.DataFrame({"Table": flags["table"], "Flag": flags["column"], "Stored type": flags["stored_type"],
+                      "== 1": flags["match_int_1"], '== "1"': flags["match_text_1"], "== True": flags["match_true"]}),
+        use_container_width=True, hide_index=True,
+        column_config={"== 1": _UNITS_COLUMN, '== "1"': _UNITS_COLUMN, "== True": _UNITS_COLUMN},
+    )
+    st.markdown("**3. groupby silently drops rows whose key is missing**")
+    dropped = _only(result.dropped, table_label)
+    if dropped.empty:
+        st.success("No grouping-style column has missing values in the selected tables.")
+    else:
+        bars = dropped.assign(label=dropped["table"] + "." + dropped["column"]).melt(
+            id_vars="label", value_vars=["rows_dropped_pct", "outcome_lost_pct"], var_name="what", value_name="pct").dropna()
+        bars["what"] = bars["what"].map({"rows_dropped_pct": "rows dropped", "outcome_lost_pct": "outcome (measure) dropped"})
+        drop_chart = alt.Chart(bars).mark_bar().encode(
+            y=alt.Y("label:N", title=None, sort=None, axis=alt.Axis(labelLimit=320)), yOffset="what:N", x=alt.X("pct:Q", title="% of the table"),
+            color=alt.Color("what:N", title=None, scale=alt.Scale(domain=["rows dropped", "outcome (measure) dropped"], range=[_BLUE, _ORANGE])),
+            tooltip=["label", "what", alt.Tooltip("pct:Q", format=".1f")],
+        ).properties(height=26 * len(dropped) + 60)
+        st.altair_chart(drop_chart, use_container_width=True)
+    st.markdown("**4. Arithmetic on an identifier**")
+    id_math = _only(result.id_math, table_label)
+    if id_math.empty:
+        st.success("No identifier is stored as a number in the selected tables.")
+    else:
+        st.dataframe(
+            pd.DataFrame({"Table": id_math["table"], "Identifier": id_math["column"], "Stored type": id_math["stored_type"],
+                          "Values a mean() would accept": id_math["values_averaged"]}),
+            use_container_width=True, hide_index=True, column_config={"Values a mean() would accept": _UNITS_COLUMN},
+        )
+
+    # --- Insights + report ----------------------------------------------------------------
+    mismatches = [c for c in profile.columns if c.mismatch_kind]
+    insights = tidy_rectangular.build_insights(result, mismatches)
+    st.subheader("Insights")
+    with st.container(border=True):
+        for number, insight in enumerate(insights, start=1):
+            st.markdown(f"**{number}. {insight.title}** - {insight.finding}")
+            st.markdown(f"- *Risk:* {insight.risk}\n- *Fix:* {insight.fix}")
+
+    st.subheader("Result report")
+    report = tidy_rectangular.build_report(result, insights, profile)
+    st.download_button("Download the result report (.md)", report, file_name="rectangular_tidy_report.md", mime="text/markdown")
+    with st.expander("Preview the result report"):
+        st.markdown(report)
+
+
+def dash_palette() -> list[str]:
+    """Categorical colours for dtype charts (blue and orange first, as elsewhere on these pages)."""
+    return [_BLUE, _ORANGE, "#1baf7a", "#eda100", "#e87ba4", "#4a3aa7", "#8a8a85"]
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -475,6 +1078,8 @@ def main() -> None:
         st.Page(page_660_analysis, title="660 Analysis", icon="📈", default=True),
         st.Page(page_rises_drops, title="Rises and Drops", icon="📉"),
         st.Page(page_rep_block_performance, title="Rep Block Performance", icon="🧭"),
+        st.Page(page_data_types_profile, title="Data types profile", icon="🧬"),
+        st.Page(page_rectangular_tidy, title="Rectangular data and tidy data", icon="🧮"),
     ])
     navigation.run()
 

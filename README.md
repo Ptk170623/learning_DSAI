@@ -19,6 +19,25 @@ out on purpose):
 - **Rep Block Performance** — "Doctor Potential" only: market potential
   (Closeup) crossed with internal visit effort and 1015 revenue result.
 
+A fourth page, **Data types profile**, is a study page about the data
+itself rather than the sales analysis: it loops over every table the app
+loads and classifies each column (stored type vs. statistical type —
+identifier, binary, nominal, ordinal, discrete, continuous, date), flags the
+columns whose stored type misleads, and generates insights plus a
+paste-ready result report. Only column names, counts and aggregates are
+shown — never raw rows or the values of identifier / personal columns. Its
+logic lives in `data_types_profile.py` (no Streamlit dependency); charts use
+Altair, which ships with Streamlit.
+
+A fifth page, **Rectangular data and tidy data**, looks at the same tables as
+rectangular data: what one record is (the smallest unique key), which columns
+are features / outcomes / keys, the data-matrix shape, whether each table is
+tidy (one unit per table, one variable per column), long vs. wide, and the
+silent errors pandas will not report (merge fan-out on a near-unique key,
+flags compared with the wrong dtype, `groupby` dropping missing keys). Its
+logic lives in `tidy_rectangular.py`; a generated `rectangular_tidy_report.md`
+is included.
+
 ## How it fits together
 
 ```
@@ -169,4 +188,8 @@ an empty result on read.
 - `transform.py` — all calculation logic, including the Supabase fetch/
   pagination/column-rename-back/cache (`_ler`, `_TABLE_CACHE`,
   `clear_cache()`) — no Streamlit dependency, testable on its own.
-- `data_app_gestao.py` — the Streamlit UI (3 pages).
+- `data_types_profile.py` — column classification, insights and report for
+  the Data types profile page (pure pandas, testable on its own).
+- `tidy_rectangular.py` — rectangular / tidy-data analysis for its page
+  (pure pandas, no Streamlit).
+- `data_app_gestao.py` — the Streamlit UI (5 pages).
