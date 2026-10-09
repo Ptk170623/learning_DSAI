@@ -29,6 +29,15 @@ shown — never raw rows or the values of identifier / personal columns. Its
 logic lives in `data_types_profile.py` (no Streamlit dependency); charts use
 Altair, which ships with Streamlit.
 
+A fifth page, **Rectangular data and tidy data**, looks at the same tables as
+rectangular data: what one record is (the smallest unique key), which columns
+are features / outcomes / keys, the data-matrix shape, whether each table is
+tidy (one unit per table, one variable per column), long vs. wide, and the
+silent errors pandas will not report (merge fan-out on a near-unique key,
+flags compared with the wrong dtype, `groupby` dropping missing keys). Its
+logic lives in `tidy_rectangular.py`; a generated `rectangular_tidy_report.md`
+is included.
+
 ## How it fits together
 
 ```
@@ -181,4 +190,6 @@ an empty result on read.
   `clear_cache()`) — no Streamlit dependency, testable on its own.
 - `data_types_profile.py` — column classification, insights and report for
   the Data types profile page (pure pandas, testable on its own).
-- `data_app_gestao.py` — the Streamlit UI (4 pages).
+- `tidy_rectangular.py` — rectangular / tidy-data analysis for its page
+  (pure pandas, no Streamlit).
+- `data_app_gestao.py` — the Streamlit UI (5 pages).
