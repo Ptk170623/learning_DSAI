@@ -42,6 +42,7 @@ MM_ID_AS_NUMBER = "ID / code stored as number"
 MM_FLAG_AS_NUMBER = "flag stored as number"
 MM_FLAG_AS_TEXT = "flag stored as text digits"
 MM_DATE_AS_TEXT = "date stored as text"
+MM_DATE_AS_NUMBER = "date / period stored as number"
 MM_INT_AS_FLOAT = "integers stored as float"
 
 # --- Tunable rules --------------------------------------------------------------
@@ -61,6 +62,8 @@ CODE_TOKENS = {"COD", "CODIGO", "CODE", "CEP", "ZIP", "BLOCO", "BLOCK"}
 NUMBERED_SUFFIXES = {"NUM", "NUMERO", "NR", "NO"}
 COUNT_TOKENS = {"QTD", "QTDE", "QTY", "QUANT", "QUANTIDADE", "QUANTITY", "DIAS", "DAYS", "PX", "UNIDADES",
                 "UNITS", "COUNT", "CONTAGEM"}
+MEASURE_TOKENS = {"VALOR", "VALUE", "PRECO", "PRICE", "FATURAMENTO", "REVENUE", "COMISSAO", "COMMISSION",
+                  "CUSTO", "COST", "AMOUNT"}
 ORDINAL_TOKENS = {"CATEGORIA", "CATEGORY", "NIVEL", "LEVEL", "CLASSE", "CLASS", "FAIXA", "GRAU", "TIER",
                   "RANK", "SCORE", "PORTE", "ESTAGIO", "STAGE", "SEVERIDADE", "SEVERITY"}
 # Strong personal tokens: the column holds names / personal registrations -> never show values or levels.
@@ -190,6 +193,19 @@ def _looks_like_date_text(s: pd.Series, family: str) -> bool:
     return sample.map(lambda v: bool(_DATE_PATTERN.match(v))).mean() >= DATE_TEXT_SHARE
 
 
+def _period_code_kind(numbers: pd.Series) -> str | None:
+    """"YYYYMM" / "YYYYMMDD" when every value is an integer shaped like one of
+    those calendar codes (valid year range and month/day), else None."""
+    if numbers.empty or not (numbers % 1 == 0).all():
+        return None
+    v = numbers.astype("int64")
+    if v.between(190001, 299912).all() and v.mod(100).between(1, 12).all():
+        return "YYYYMM"
+    if v.between(19000101, 29991231).all() and (v // 100 % 100).between(1, 12).all() and v.mod(100).between(1, 31).all():
+        return "YYYYMMDD"
+    return None
+
+
 def is_personal(column: str, stat_type: str, labels: bool = True) -> bool:
     """Columns whose values (or levels) must never be shown. `labels` = the
     column's values are text labels (not 0/1 digits or booleans)."""
@@ -277,6 +293,9 @@ def classify_column(column: str, s: pd.Series) -> tuple[str, str, str | None]:
 
     # --- numeric values (stored as numbers, or as text that parses)
     if numbers is not None:
+        period = _period_code_kind(numbers)
+        if period and not tokens & COUNT_TOKENS:
+            return OTHER_DATE, f"integer values shaped like {period} calendar codes", MM_DATE_AS_NUMBER
         text_mismatch = None if is_numeric_dtype else MM_NUMBERS_AS_TEXT
         levels = sorted(numbers.unique().tolist())
         if integer_valued and (tokens & ORDINAL_TOKENS) and 3 <= len(levels) <= MAX_ORDINAL_LEVELS:
@@ -287,6 +306,8 @@ def classify_column(column: str, s: pd.Series) -> tuple[str, str, str | None]:
         ):
             kind = MM_ID_AS_NUMBER if is_numeric_dtype else None
             return NOMINAL, f"numeric code, not a quantity ({n_distinct} levels)", kind
+        if tokens & MEASURE_TOKENS and not tokens & COUNT_TOKENS:
+            return CONTINUOUS, f"measured amount (money-like name), {n_distinct:,} distinct values", text_mismatch
         float_as_int = family == "float" and integer_valued
         float_mismatch = MM_INT_AS_FLOAT if float_as_int else None
         if integer_valued and ((tokens & COUNT_TOKENS) or n_distinct <= MANY_DISTINCT):
@@ -453,6 +474,10 @@ class Insight:
     fix: str
 
 
+def _num(x: float) -> str:
+    return f"{x:,.0f}" if abs(x) >= 100 else f"{x:,.2f}"
+
+
 def _names(columns: list[ColumnProfile], limit: int = 6) -> str:
     items = [f"`{c.table}.{c.column}`" for c in columns]
     return ", ".join(items[:limit]) + (f" and {len(items) - limit} more" if len(items) > limit else "")
@@ -512,14 +537,78 @@ def build_insights(profile: Profile) -> list[Insight]:
             "Convert with pd.to_numeric(errors=\"coerce\") and check how many values become missing.",
         ))
 
-    date_text = by_kind.get(MM_DATE_AS_TEXT, [])
+    date_bad = by_kind.get(MM_DATE_AS_TEXT, []) + by_kind.get(MM_DATE_AS_NUMBER, [])
     n_dates = sum(1 for c in cols if c.stat_type == OTHER_DATE)
-    if date_text:
+    if date_bad:
         insights.append(Insight(
-            "Dates stored as text",
-            f"{len(date_text)} of {n_dates} date columns are text: {_names(date_text)}.",
-            "No date arithmetic or month grouping; text sorts wrongly if formats differ.",
-            "Parse to datetime in the loader (as _DATE_COLUMNS already does for known dates).",
+            "Dates not stored as dates",
+            f"{len(date_bad)} of {n_dates} date columns are text or numbers (period codes like 202607): {_names(date_bad)}.",
+            "No date arithmetic or month grouping; text sorts wrongly if formats differ, and a period code "
+            "stored as a float can be averaged or shown as 202,608.2.",
+            "Parse to datetime in the loader (as _DATE_COLUMNS already does for known dates); turn YYYYMM codes "
+            "into the first day of the month.",
+        ))
+
+    id_cols = [c for c in cols if c.stat_type == IDENTIFIER]
+    near_unique = [c for c in id_cols if c.unique_pct >= 90 and c.duplicates > 0]
+    foreign = [c for c in id_cols if c.unique_pct < 90 and c.duplicates > 0]
+    if near_unique:
+        worst = max(near_unique, key=lambda c: c.duplicates)
+        insights.append(Insight(
+            "Row-level identifiers that still repeat",
+            f"{len(near_unique)} identifier column(s) are 90%+ unique yet repeat: {_names(near_unique)} - e.g. "
+            f"`{worst.table}.{worst.column}` is {worst.unique_pct:.1f}% unique with {worst.duplicates:,} repeats "
+            f"(one value up to {worst.detail.get('max_repeat', 0):,} times). The other {len(foreign)} identifier "
+            "column(s) repeat by design (they point to a client, doctor or employee shared by many rows).",
+            "A row is not one entity: counting rows instead of distinct IDs overstates, and a merge on this key "
+            "alone fans out and inflates totals.",
+            "Count distinct IDs; join on the composite key that is unique (and assert uniqueness after merging).",
+        ))
+    elif id_cols:
+        insights.append(Insight(
+            "Identifiers are consistent",
+            f"{len(id_cols)} identifier columns; none that should be one-per-row repeats.",
+            "Low risk inside each table.", "Still validate uniqueness before joining.",
+        ))
+
+    duplicated = [tp for tp in profile.tables if tp.duplicate_rows]
+    if duplicated:
+        worst = max(duplicated, key=lambda tp: tp.duplicate_rows / max(tp.n_rows, 1))
+        insights.append(Insight(
+            "Fully duplicated rows",
+            f"{len(duplicated)} of {len(profile.tables)} tables contain exact duplicate rows; worst: `{worst.table}` "
+            f"with {worst.duplicate_rows:,} of {worst.n_rows:,} rows ({100 * worst.duplicate_rows / worst.n_rows:.1f}%).",
+            "Observations are counted (and their values summed) more than once, inflating totals and counts.",
+            "Check whether the repeat is a real second event; if not, drop exact duplicates in the loader and "
+            "add a row key so the grain is explicit.",
+        ))
+
+    numeric_cols = [c for c in cols if c.detail.get("stats") and c.stat_type in (CONTINUOUS, DISCRETE)]
+    extreme = sorted(
+        (c for c in numeric_cols if c.detail["stats"]["median"] > 0 and c.detail["stats"]["skew"] > 5
+         and c.detail["stats"]["max"] > 50 * c.detail["stats"]["median"]),
+        key=lambda c: -c.detail["stats"]["max"] / c.detail["stats"]["median"],
+    )
+    if extreme:
+        top = extreme[:3]
+        insights.append(Insight(
+            "Extreme right-skew and outliers in numeric columns",
+            f"{len(extreme)} numeric column(s) have a maximum over 50x their median and skew above 5; e.g. "
+            + "; ".join(f"`{c.table}.{c.column}` median {_num(c.detail['stats']['median'])}, mean "
+                        f"{_num(c.detail['stats']['mean'])}, max {_num(c.detail['stats']['max'])}" for c in top) + ".",
+            "A handful of rows dominate sums and means (or are entry errors, such as days of stock measured in "
+            "decades), so averages and charts describe the outliers, not the typical row.",
+            "Inspect the largest rows, report median / trimmed mean next to the mean, and use a log scale.",
+        ))
+
+    sparse = sorted((c for c in cols if c.missing_pct >= 20), key=lambda c: -c.missing_pct)
+    if sparse:
+        insights.append(Insight(
+            "Columns with a lot of missing data",
+            f"{len(sparse)} column(s) are 20%+ missing, worst: `{sparse[0].table}.{sparse[0].column}` "
+            f"({sparse[0].missing_pct:.0f}%).",
+            "Averages and rates cover only the filled rows; a blank can mean 'none' or 'unknown'.",
+            "Document what blank means per column and fill it explicitly (as the project does with '(not informed)').",
         ))
 
     float_ints = by_kind.get(MM_INT_AS_FLOAT, [])
@@ -532,22 +621,6 @@ def build_insights(profile: Profile) -> list[Insight]:
             "Use pandas nullable Int64 for counts that can be missing.",
         ))
 
-    id_cols = [c for c in cols if c.stat_type == IDENTIFIER]
-    dup_ids = [c for c in id_cols if c.duplicates > 0]
-    if id_cols:
-        worst = max(id_cols, key=lambda c: c.duplicates)
-        insights.append(Insight(
-            "Identifiers that are not unique" if dup_ids else "Identifiers are unique",
-            f"{len(dup_ids)} of {len(id_cols)} identifier columns repeat values (most repeated: "
-            f"`{worst.table}.{worst.column}` with {worst.duplicates:,} repeated of {worst.n_rows - worst.n_missing:,} "
-            f"non-null, {worst.unique_pct:.1f}% unique)." if dup_ids else
-            f"All {len(id_cols)} identifier columns are 100% unique within their table.",
-            "Rows are not entities: counting rows instead of distinct IDs overstates, and a merge on a "
-            "non-unique key fans out and inflates totals." if dup_ids else "Low risk inside the table.",
-            "Count distinct IDs; join on the composite key that is unique and test uniqueness after merging."
-            if dup_ids else "Still validate uniqueness before joining.",
-        ))
-
     inconsistent = _cross_table_type_conflicts(cols)
     if inconsistent:
         name, items = inconsistent[0]
@@ -557,16 +630,6 @@ def build_insights(profile: Profile) -> list[Insight]:
             f"(e.g. `{name}`: " + ", ".join(f"{t}={d}" for t, d in items) + ").",
             "Merging on it can fail or silently match nothing; the same variable behaves differently by table.",
             "Agree one type per shared column and cast in the loader before any merge.",
-        ))
-
-    sparse = sorted((c for c in cols if c.missing_pct >= 20), key=lambda c: -c.missing_pct)
-    if sparse:
-        insights.append(Insight(
-            "Columns with a lot of missing data",
-            f"{len(sparse)} column(s) are 20%+ missing, worst: `{sparse[0].table}.{sparse[0].column}` "
-            f"({sparse[0].missing_pct:.0f}%).",
-            "Averages and rates cover only the filled rows; a blank can mean 'none' or 'unknown'.",
-            "Document what blank means per column and fill it explicitly (as the project does with '(not informed)').",
         ))
 
     high_card = sorted((c for c in cols if c.stat_type == NOMINAL and c.n_distinct > MAX_LEVELS_SHOWN), key=lambda c: -c.n_distinct)
@@ -712,7 +775,10 @@ def build_report(profile: Profile, insights: list[Insight], page_hint: str = "st
         "Identifiers name things; they are not quantities. Repeats mean a row is not one entity, so count distinct IDs "
         "and join on unique keys.",
         [f"{ref(c)} is stored as a number, so it can be averaged" for c in ids if c.mismatch_kind == MM_ID_AS_NUMBER]
-        + [f"{ref(c)} repeats ({c.duplicates:,} repeated values)" for c in ids if c.duplicates],
+        + [f"{ref(c)} is {c.unique_pct:.1f}% unique but repeats ({c.duplicates:,} repeats) - a row is not one entity"
+           for c in ids if c.unique_pct >= 90 and c.duplicates]
+        + ([f"{len(fk)} other identifier column(s) repeat by design (foreign keys to a client / doctor / employee / patient)"]
+           if (fk := [c for c in ids if c.unique_pct < 90 and c.duplicates]) else []),
     ) if ids else _block("5. Identifier", "-", "-", [], "-", []))
 
     out.append("## MISMATCH LIST (column, stored type -> statistical type, why)")

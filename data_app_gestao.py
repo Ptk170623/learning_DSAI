@@ -473,13 +473,34 @@ def page_rep_block_performance() -> None:
 
 _BLUE, _ORANGE = "#2a78d6", "#eb6834"
 _ALL = "All"
+# Tables left out of the profile: closeup is ~265k rows (minutes to load) and is not needed for this study.
+_PROFILE_EXCLUDED_TABLES = {"closeup"}
+
+
+def _read_table_with_retry(name: str, attempts: int = 3) -> pd.DataFrame:
+    """transform._ler with a short retry - a Supabase read can fail transiently
+    (httpx.ReadError) when two page runs load tables at the same time."""
+    import time
+    for attempt in range(1, attempts + 1):
+        try:
+            return transform._ler(name)
+        except RuntimeError:  # missing credentials - retrying cannot help
+            raise
+        except Exception:  # transport errors from the supabase client
+            if attempt == attempts:
+                raise
+            time.sleep(2 * attempt)
 
 
 @st.cache_data(ttl=600, show_spinner="Loading every table and profiling its columns (first load can take minutes)...")
 def _cached_profile() -> data_types_profile.Profile:
-    """Profiles EVERY table the project loads (transform._REVERSE_RENAME keys)
-    - the cached value holds only counts and aggregates, never raw rows."""
-    tables = {name: transform._ler(name) for name in transform._REVERSE_RENAME}
+    """Profiles every table the project loads (transform._REVERSE_RENAME keys)
+    except _PROFILE_EXCLUDED_TABLES - the cached value holds only counts and
+    aggregates, never raw rows."""
+    tables = {
+        name: _read_table_with_retry(name)
+        for name in transform._REVERSE_RENAME if name not in _PROFILE_EXCLUDED_TABLES
+    }
     return data_types_profile.profile_tables(tables)
 
 
@@ -596,7 +617,7 @@ def _column_detail(column: data_types_profile.ColumnProfile) -> None:
 def page_data_types_profile() -> None:
     st.header("Data types profile")
     st.caption(
-        "Every table the project loads, read column by column: how each variable is STORED (dtype) versus what it "
+        "Every table the project loads (except closeup), read column by column: how each variable is STORED (dtype) versus what it "
         "MEANS statistically. Only column names, counts, percentages and aggregates are shown - never raw rows or "
         "the values of identifier / personal columns."
     )
