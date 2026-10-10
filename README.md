@@ -69,7 +69,7 @@ second peak), shows the density scale with unequal bins, and draws kernel densit
 bandwidths. Its logic lives in `distribution_shape.py`; `histograms_and_density_report.md` is included and
 `STUDY_PACK.md` now has six parts.
 
-`STUDY_LESSONS.md` is the text version of the artifact's "Concepts in practice" tab: 21 lessons in the
+`STUDY_LESSONS.md` is the text version of the lessons at the top of each artifact tab: 28 lessons in the
 order of Chapter 1 of *Practical Statistics for Data Scientists*, each with the book's definition (with
 page), the real numbers from the tables, the business value and the insight. The two books are in the
 repository root.

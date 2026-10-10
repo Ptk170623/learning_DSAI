@@ -1,6 +1,6 @@
 # Statistics in Practice: lessons (text version of the artifact)
 
-Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck), taught on the project's real, anonymized data. Same content as the 'Concepts in practice' tab of the artifact: for each concept, what the book says (with printed page numbers), the real numbers, why it matters for the business, and the insight. Concepts that are not in the two books are labelled 'Outside your two books'.
+Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck), taught on the project's real, anonymized data. Same content as the lessons at the top of each tab of the artifact: for each concept, what the book says (with printed page numbers), the real numbers, why it matters for the business, and the insight. Concepts that are not in the two books are labelled 'Outside your two books'.
 
 ## A. Elements of structured data
 *Practical Statistics, Chapter 1, pp.2-4*
@@ -509,3 +509,189 @@ Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck),
 **Insight:** `POSOLOGIA_SUSPEITA` equals the upper Tukey fence of `DIAS_ESTOQUE` per `PRODUTO` with 100% precision and 100% recall: the rule is reproducible from the tables. It also means the outliers it removes are exactly those the boxplot would draw as points.
 
 **Watch out:** This is a data-driven rule: a product with few rows has an unstable fence (the test only used products with 30 or more rows).
+
+## F. Exploring the data distribution: frequency tables, histograms and density
+*Practical Statistics, Chapter 1, pp.21-26 (mode, unimodal/multimodal, bandwidth and the bin rules are only touched on or outside your books)*
+
+### F1 - Frequency table, bin and histogram
+
+**Concepts:** Frequency table; Bin; Histogram
+
+**Source:** Practical Statistics, Ch.1, 'Frequency Tables and Histograms', pp.22-23 (and Key Terms, p.21) | Morettin & Bussab, Ch.2, §2.2 'Distribuições de Frequências', pp.12-14, and §2.3 'Gráficos' (histograma), p.18
+
+**What the book says**
+- A frequency table divides the range of a variable into equally spaced segments and tells how many values fall within each segment (Practical Statistics, p.22). The book's example cuts the state populations into 10 bins: the range (36.7 million) divided by 10 gives bins 3.67 million wide, and the first bin alone holds 24 states.
+- The book insists on keeping the empty bins: 'the fact that there are no values in those bins is useful information'. A histogram is the picture of the frequency table: bins on the x-axis, counts on the y-axis, equal widths, bars touching, empty bins drawn (p.23).
+- Morettin & Bussab do the same for a continuous variable, calling the bins 'classes' written a ⊢ b (a included, b excluded). Grouping loses some information: you no longer see the individual values, only the class (p.13).
+- *Note: 'Bin' is the word of Practical Statistics; Morettin & Bussab say 'classe'. Same thing: one segment of the range.*
+
+**In your data**
+- rows of revenue (FATURAMENTO): **72,674**
+- 10 bins: width of each: **125,952**
+- 10 bins: rows in the first bin: **99.7%**
+- 10 bins: empty bins: **2 of 10**
+- central range, 40 bins: fullest bin: **42.3%**
+- *Chart: The book's recipe on your revenue: 10 equal bins over the full range.* Share of the rows in each bin. One bar holds almost everything; the other nine are too small to see (two are exactly empty).
+- *Chart: The same variable on its central 1%-99% range, 40 bins.* Dropping the top 1% of the values (727 rows, up to 1,259,522) makes the shape visible.
+
+**Why it matters for the business:** A sales line is worth a median of 1,500, but the largest is 1,259,522. Cut into 10 equal bins, 99.7% of the lines fall in the first bin (0 to 125,952) and the table says almost nothing about the lines a manager deals with every day. The frequency table needs the range chosen with care, not just divided by 10.
+
+**Insight:** The frequency table is only as informative as its range. With the full range, the 2 empty bins say 'no revenue between 755,713 and 1,133,570' (true, and itself a finding: a few giant lines stretch the axis). On the central range the lines spread over 40 bins, with at most 42.3% of the rows in any bin.
+
+**Watch out:** Equal-width bins are a convention, not a law of the data: always say which range and how many bins a table or histogram uses.
+
+### F2 - Bin width and number of bins
+
+**Concepts:** Bin width and number of bins
+
+**Source:** Practical Statistics, Ch.1, p.23 ('the number of bins is up to the user'; 'experiment with different bin sizes') | Morettin & Bussab, Ch.2, §2.2, p.13 (5 to 15 classes of equal width) and Ch.2 §2.6 'Problema 10', p.27 (unequal classes)
+
+**What the book says**
+- Practical Statistics says the number of bins (or, equivalently, the bin size) is up to the user. It is useful to experiment with different bin sizes: if they are too large, important features of the distribution can be obscured; if too small, the result is too granular and the bigger picture is lost (p.23).
+- Morettin & Bussab give the same warning and a rule of thumb: the choice of the intervals is arbitrary, a small number of classes loses information and a large number defeats the purpose of summarising; normally 5 to 15 classes of equal width are suggested (p.13).
+- *Note: Sturges, square-root, Scott and Freedman-Diaconis are not in your two books; they are common rules of thumb that turn n and the spread into a number of bins (outside your books). They are starting points, not answers.*
+
+**In your data**
+- DIAS_ESTOQUE rows: **44,144**
+- Sturges' rule: **17 bins**
+- square-root rule: **211 bins**
+- Freedman-Diaconis, full range: **1,767 bins**
+- Freedman-Diaconis, central range: **174 bins**
+- *Chart: Days of stock (DIAS_ESTOQUE), central range, 5 bins.* Too few bins: a smooth decline, every feature hidden.
+- *Chart: The same, 20 bins.* Some structure appears.
+- *Chart: The same, 80 bins.* Now each round number of days stands out as its own bar.
+- *Chart: Number of bins each rule asks for, per numeric column.* Where the range is hundreds of times the IQR, the rules that use the range ask for thousands of bins.
+
+**Why it matters for the business:** With 5 bins the days of stock of a treatment look like a smooth decline. With 80 bins they show the real planning units: 66% of the values are multiples of 30 days (chance alone would give 3.3%). A replenishment rule built on the smooth picture ('average stock 135 days') would miss that the values come in standard durations.
+
+**Insight:** No single bin count is right: Sturges asks for 17 bins, the square-root rule for 211, and Freedman-Diaconis for 1,767 over the full range (it is driven by the IQR, so the 9,000-day maximum forces thousands of narrow bins) but 174 on the central range. The question decides: a few bins for the overall shape, many for peaks.
+
+**Watch out:** Try at least three bin counts before drawing a conclusion; a feature that appears at only one bin count is probably noise.
+
+### F3 - Skewness
+
+**Concepts:** Skewness
+
+**Source:** Practical Statistics, Ch.1, 'Statistical Moments' (box), p.24 | Morettin & Bussab, Ch.3, §3.4 (symmetry from the five numbers), p.45, and §3.5 'Gráficos de Simetria', p.51
+
+**What the book says**
+- In statistical theory location and variability are the first and second moments of a distribution; the third and fourth are skewness and kurtosis. Skewness refers to whether the data is skewed to larger or smaller values (p.24). The book adds that, generally, metrics are not used to measure skewness: it is discovered through visual displays such as the boxplot and the histogram.
+- Morettin & Bussab test symmetry with the five numbers (smallest, Q1, median, Q3, largest): in a symmetric distribution the median is about as far from the smallest as from the largest, and from Q1 as from Q3 (p.45). If the quantiles on the right are farther from the median than those on the left, the data are skewed to the right; this typically happens with positive data (p.51).
+- *Note: The skewness number used here is the standard third-moment coefficient (pandas' skew); 0 means symmetric, positive means a long right tail. It is a summary of what the histogram shows, not a replacement for it.*
+
+**In your data**
+- right-skewed columns: **9 of 9**
+- FATURAMENTO skewness: **23.5**
+- FATURAMENTO mean / median: **4,254 / 1,500**
+- rows below the mean (FATURAMENTO): **84%**
+- FATURAMENTO: upper / lower spread: **839**
+- *Chart: Revenue per line, central 1%-99%, with the median and the mean.* The median sits at the foot of the peak; the mean is dragged to the right by the long tail.
+- *Chart: Skewness of every numeric column.* Blue: all rows. Orange: only the central 1%-99%. Compressed axis. Every column leans right; most of the number comes from the top 1% of the rows.
+
+**Why it matters for the business:** For revenue per line the mean (4,254) is 2.8 times the median (1,500) and 84% of the lines are below it. 'Average revenue per line' is therefore a value that most lines never reach: a target or a bonus built on it will look unreachable, while the median describes the typical line.
+
+**Insight:** All 9 numeric columns lean right, as money and quantities do. The skewness number itself is fragile: for revenue it is 23.5 on all rows and 4.6 once the top 1% (727 lines) is set aside; for quantity it falls from 112 to 4.4. A handful of lines produce most of the 'skewness', which is why the book prefers to look at the picture.
+
+**Watch out:** Do not average a right-skewed column and call it typical; if you must use the mean (for a total), say that a few large values drive it.
+
+### F4 - Mode, unimodal and multimodal
+
+**Concepts:** Mode; Unimodal; Bimodal; Multimodal
+
+**Source:** Morettin & Bussab, Ch.3, §3.1 'Medidas de Posição' (moda, bimodal, trimodal), p.35 | Practical Statistics, Ch.1, histogram and density plot figures, pp.23-25 (peaks are read from them)
+
+**What the book says**
+- Morettin & Bussab define the mode as the most frequent value of the observations. In some cases there is more than one mode, and the distribution can be bimodal, trimodal and so on (p.35).
+- Practical Statistics does not define the mode; it shows distributions through the histogram and the density plot, where peaks are seen at a glance (pp.23-25).
+- *Note: Outside your two books: the words 'unimodal' and 'multimodal', and my rule for counting peaks: a peak of the density curve must reach 5% of the highest peak, and two peaks count as separate only if the dip between them is deeper than 20%.*
+
+**In your data**
+- DIAS_ESTOQUE: most frequent value: **60 days (14.8%)**
+- its five most frequent values: **48%**
+- peaks of its density: **8**
+- multiples of 30 days: **66% (chance 3.3%)**
+- columns with 2+ peaks: **8 of 9**
+- *Chart: Days of stock: histogram (80 bins) and density curve.* Most peaks of the curve sit on or near a round number of days.
+- *Chart: Days of stock: the five most frequent values.* Share of the rows that hold exactly this value of days.
+- *Chart: Revenue: share of rows above the valley between its two main peaks, by record type.* The valley sits at 1,744; the peaks at 1,221 and 1,962. The record type that never goes above it holds the zero-revenue rows.
+
+**Why it matters for the business:** Days of stock is not a smooth quantity: 66% of the values are multiples of 30 days, and the single most frequent value is 60 days (14.8% of the rows). The values come in standard durations, so a planner should talk about 'the 30, 60 and 90-day groups' rather than an average of 135 days that almost nobody has.
+
+**Insight:** 6 of 9 numeric columns have one value holding at least 20% of the rows (for the quantity per line in the small sales table, 95% of the rows are exactly 1 unit), and 8 have two or more peaks. When a second peak appears, look for a category that explains it: in revenue, the DOACAO records never rise above the valley (100% of them have revenue exactly 0, which is the peak at zero) while 45% of the VENDA records do.
+
+**Watch out:** A mode is only a peak of what you chose to plot: with the wrong bins or bandwidth, modes appear or disappear (see the last two lessons).
+
+### F5 - Density scale
+
+**Concepts:** Density scale
+
+**Source:** Practical Statistics, Ch.1, 'Density Plots and Estimates', p.25 (y-axis as proportion; area under the curve = 1) | Morettin & Bussab, Ch.2, §2.3, p.18 (densidade de frequência fi/Δi; area = 1) and 'Problema 10', p.27 (classes of unequal width)
+
+**What the book says**
+- Practical Statistics: a key distinction from the histogram is the scale of the y-axis. A density plot corresponds to plotting the histogram as a proportion rather than counts. The total area under the density curve is 1, and instead of counts in bins you calculate areas under the curve between two points, which give the proportion of the distribution lying between them (p.25).
+- Morettin & Bussab build the histogram so that the area of each rectangle is proportional to the frequency: the height is fi/Δi (frequency divided by the class width), the 'densidade de frequência', and the total area is 1 (p.18). Their Problem 10 shows why this matters when classes have different widths: a superficial look at the counts suggests a peak that disappears once you divide by the width (p.27).
+- *Note: With equal bins, counts and density have exactly the same shape; only the y-axis units change. The density scale is essential when bins have unequal widths.*
+
+**In your data**
+- painel: DIAS_SEM_VISITA_NUM rows: **5,399**
+- bin 1 density: **1.78% of rows per day**
+- bin 3 density: **0.12% of rows per day**
+- denser: **14.4 x**
+- equal bins: sum of bar areas: **1.000**
+- *Chart: Days without a visit, cut at its percentiles: bars as counts.* Bins 1 to 3 each hold about the same share of the rows (23%, 26%, 26%), so they look alike.
+- *Chart: The same bins as density (% of rows per day).* Area, not height, is the share of the rows. Bin 1 (1 to 14 days) is 14.4 times denser than bin 3 (30 to 240 days).
+
+**Why it matters for the business:** Days without a visit measures how long each row of the panel has gone without being visited. 49% of the rows were visited in the last 30 days and 25% have gone more than 240 days. Read as counts, the wide 30 to 240 day bin looks as big as the first two; read as density, the rows are far more concentrated in the first month.
+
+**Insight:** Counts are honest only when bins are equal. With unequal bins, three bars with the same share (23%, 26%, 26%) hide a 14-fold difference in density. For equal bins the two scales agree: the 10 bars of the 10-bin histogram of this column have areas that add up to 1.000.
+
+**Watch out:** When a chart has bars of different widths, check whether the height is a count or a density before comparing bars.
+
+### F6 - Density plot and kernel density estimate (KDE)
+
+**Concepts:** Density plot; Kernel density estimate (KDE)
+
+**Source:** Practical Statistics, Ch.1, Key Terms p.21 and 'Density Plots and Estimates', pp.24-26 | Morettin & Bussab, Ch.2, 'Problema 12' (histograma alisado), pp.28-29
+
+**What the book says**
+- A density plot shows the distribution of the data values as a continuous line; it can be thought of as a smoothed histogram, although it is typically computed directly from the data through a kernel density estimate (p.24). The book draws the estimate over a histogram (Figure 1-4) and notes that for many data science problems it suffices to use the base functions of the software (p.26).
+- Morettin & Bussab describe the same idea as a limit: with enough observations, shrinking the class widths makes the histogram less irregular until it becomes a smooth curve (the 'histograma alisado'); where the curve is higher there is a greater density of observations (p.29).
+- *Note: Outside your two books: how a kernel density estimate is computed. Put one small bell curve (a Gaussian 'kernel') on every value and average them; the width of the bells is the bandwidth. It is drawn here on the central 1%-99% range.*
+
+**In your data**
+- FATURAMENTO: bandwidth h: **89.10**
+- area under the curve (plotted range): **0.982**
+- density below the minimum (0): **1.8%**
+- columns with density below their minimum: **8 of 9**
+- *Chart: Revenue per line: histogram as density, and the kernel density estimate.* Grey bars: histogram (40 bins) on the density scale. Line: the smooth estimate. Their areas both add up to about 1.
+- *Chart: Share of the density that falls below the smallest value the column ever takes.* Columns with few distinct values or counts. A smooth curve gives probability to values that cannot exist.
+
+**Why it matters for the business:** A smooth revenue curve is easier to read than 40 bars, and it overlays groups well, but it is an estimate, not the data: it says 1.8% of sales lines have negative revenue, which never happens (the minimum is 0.00). For the quantity per line in the small sales table it says 48% of the lines are below 1 unit.
+
+**Insight:** A density curve is a good display for a measured, continuous quantity (revenue, days) and a poor one for counts and columns with few distinct values: it smears the bars of 1, 2, 3 units into hills and spills probability beyond the possible range. For those columns, a bar chart of the values is the honest picture.
+
+**Watch out:** Always read a density plot together with the range of the data: the curve extends where there are no rows.
+
+### F7 - Bandwidth
+
+**Concepts:** Bandwidth
+
+**Source:** Practical Statistics, Ch.1, p.25 (bw_method controls the smoothness of the density curve) and 'Further Reading' on kernels and bandwidth, p.26
+
+**What the book says**
+- The book shows that pandas' density method takes an argument (bw_method) 'to control the smoothness of the density curve' (p.25) and points to a resource on the effect of choosing different kernels and bandwidth on kernel density estimates (p.26). It does not define bandwidth beyond this.
+- *Note: Outside your two books: the definition and the rule below. The bandwidth is the width of the bell curve placed on every value. Silverman's rule of thumb sets it to 0.9 x min(standard deviation, IQR / 1.34) x n^(-1/5). 'h / 4' and '4 x h' are only here to show what happens when it is too small or too large.*
+
+**In your data**
+- DIAS_ESTOQUE: Silverman bandwidth h: **7.14 days**
+- peaks with h / 4: **19**
+- peaks with h: **8**
+- peaks with 4 x h: **2**
+- *Chart: Days of stock: the same data at three bandwidths.* Orange: h / 4 (too small, jagged). Blue: Silverman h. Green: 4 x h (too large, one hump). Grey bars: histogram, 40 bins.
+- *Chart: Number of peaks of every numeric column at the three bandwidths.* The same data give very different numbers of peaks depending on the smoothing.
+
+**Why it matters for the business:** How many standard stock durations does the business really have? With a small bandwidth the density of days of stock has 19 peaks, with the rule of thumb 8, with a large one 2. The honest answer comes from the histogram with 80 bins (round numbers of days) and not from the curve alone.
+
+**Insight:** The bandwidth plays for the density the role the number of bins plays for the histogram: too small invents peaks out of noise, too large erases real ones. Both look equally smooth on a chart. A peak you can trust survives two or three bandwidths and shows up in the histogram too.
+
+**Watch out:** Never report a number of peaks without the bandwidth (or bin count) behind it.

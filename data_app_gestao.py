@@ -1879,11 +1879,14 @@ def page_histograms_and_density() -> None:
     st.dataframe(
         pd.DataFrame({
             "Table": cv["table"], "Column": cv["column"], "Mode (most frequent value)": cv["mode_value"], "Share of rows": cv["mode_pct"], "Top 5 values": cv["top5_pct"],
-            "Peaks": cv["kde_modes"], "Shape": cv["shape"], "Peak positions": cv["kde_peaks"],
+            "Peaks": cv["kde_modes"], "Shape": cv["shape"], "Peak positions": cv["kde_peaks"], "Round-number step": cv["heaping_step"],
+            "Multiples of that step": cv["heaping_pct"], "By chance": cv["heaping_chance_pct"],
         }),
         use_container_width=True, hide_index=True,
-        column_config={"Mode (most frequent value)": st.column_config.NumberColumn(format="%,.4g"), "Share of rows": _PERCENT_COLUMN, "Top 5 values": _PERCENT_COLUMN, "Peaks": _UNITS_COLUMN},
+        column_config={"Mode (most frequent value)": st.column_config.NumberColumn(format="%,.4g"), "Share of rows": _PERCENT_COLUMN, "Top 5 values": _PERCENT_COLUMN, "Peaks": _UNITS_COLUMN,
+                       "Round-number step": _UNITS_COLUMN, "Multiples of that step": _PERCENT_COLUMN, "By chance": _PERCENT_COLUMN},
     )
+    st.caption("Round-number step: when at least 25% of the whole-number values are multiples of 5, 10, 30, 50, 100, 500 or 1000 (and at least 10 times more than by chance), the values 'heap' on round numbers; the peaks of the density then sit on them.")
     tv = pick(result.top_values)
     if not tv.empty:
         st.markdown(f"**{choice}: its five most frequent values**")

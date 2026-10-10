@@ -44,6 +44,8 @@ UNEQUAL_PERCENTILES = [0, 25, 50, 75, 90, 99, 100]
 MIN_LEVELS, MAX_LEVELS = 2, 12
 MIN_GROUP = 30
 DISCRETE_DISTINCT = 30
+HEAPING_STEPS = [1000, 500, 100, 50, 30, 10, 5]   # round numbers a value can be a multiple of
+HEAPING_MIN_PCT, HEAPING_MIN_LIFT = 25.0, 10.0
 
 
 @dataclass
@@ -109,6 +111,20 @@ def find_modes(density: np.ndarray, grid: np.ndarray) -> list[tuple[float, float
                 changed = True
                 break
     return [(float(grid[i]), float(d[i])) for i in idx]
+
+
+def heaping(v: np.ndarray) -> tuple[int | None, float, float]:
+    """Round-number heaping: among the steps 5, 10, 30, 50, 100, 500, 1000, the one with the largest share of whole-number values that are
+    multiples of it, provided that share is at least 25% and at least 10 times what chance gives (1 in step). Returns (step, share %, chance %)."""
+    whole = v[np.isclose(v, np.round(v))]
+    if len(whole) < MIN_N or len(whole) < 0.8 * len(v):
+        return None, 0.0, 0.0
+    best = (None, 0.0, 0.0)
+    for step in HEAPING_STEPS:
+        share = 100.0 * float(np.mean(np.round(whole) % step == 0))
+        if share >= HEAPING_MIN_PCT and share >= HEAPING_MIN_LIFT * 100.0 / step and share > best[1]:
+            best = (step, share, 100.0 / step)
+    return best
 
 
 def sturges_bins(n: int) -> int:
@@ -194,6 +210,7 @@ def analyze(tables: dict[str, pd.DataFrame], profile: dtp.Profile) -> ShapeResul
             for rank, (val, cnt) in enumerate(vc.head(5).items(), start=1):
                 top_rows.append({**ref, "rank": rank, "value": float(val), "count": int(cnt), "pct": 100.0 * cnt / n})
             top5 = float(100.0 * vc.head(5).sum() / n)
+            h_step, h_share, h_chance = heaping(v) if not discrete_like else (None, 0.0, 0.0)
 
             # --- a frequency table with unequal bins: count against density --------------------------------
             edges = np.unique(np.percentile(v, UNEQUAL_PERCENTILES))
@@ -263,6 +280,7 @@ def analyze(tables: dict[str, pd.DataFrame], profile: dtp.Profile) -> ShapeResul
                 "lower_spread": med - vmin, "upper_spread": vmax - med, "upper_over_lower": (vmax - med) / (med - vmin) if med > vmin else None,
                 "below_mean_pct": 100.0 * float((v < mean).mean()), "direction": direction,
                 "mode_value": mode_value, "mode_pct": mode_pct, "top5_pct": top5, "zero_pct": 100.0 * float((v == 0).mean()),
+                "heaping_step": h_step, "heaping_pct": h_share, "heaping_chance_pct": h_chance,
                 "kde_modes": kde_modes, "kde_peaks": peaks_txt, "shape": shape, "discrete_like": discrete_like,
                 "central_low": p_lo, "central_high": p_hi,
             })
@@ -337,7 +355,9 @@ def build_insights(r: ShapeResult) -> list[Insight]:
     out.append(Insight(
         "The mode: a single value often holds a large share of the rows",
         f"In `{z['table']}.{z['column']}` the most frequent value is {_f(z['mode_value'])}, held by {z['mode_pct']:.1f}% of the rows; its five most frequent values hold {z['top5_pct']:.0f}%. "
-        f"{len(spikes)} of {len(c)} columns have one value with at least {SPIKE_PCT:.0f}% of the rows.",
+        f"{len(spikes)} of {len(c)} columns have one value with at least {SPIKE_PCT:.0f}% of the rows."
+        + ("".join(f" In `{k['table']}.{k['column']}` {k['heaping_pct']:.0f}% of the values are multiples of {int(k['heaping_step'])} (chance alone would give {k['heaping_chance_pct']:.1f}%): the values heap on round numbers, which is where the peaks of the density sit."
+                   for _, k in c[c["heaping_step"].notna()].sort_values("heaping_pct", ascending=False).head(1).iterrows())),
         "A histogram or a density of such a column shows one huge spike (or a smoothed hump) and the average is a value that hardly occurs: prices, standard quantities and round numbers repeat.",
         "For columns with a few frequent values use a bar chart of the most frequent values; report the mode next to the median.",
     ))
@@ -459,6 +479,7 @@ def build_report(r: ShapeResult, insights: list[Insight]) -> str:
         "the mode (most frequent value) and its share; the five most frequent values; the number of peaks of the kernel density (Silverman bandwidth; a peak needs a dip below 80% before the next one); "
         "the category that explains the second peak.",
         [f"{ref(x)}: mode {_f(x.mode_value)} ({x.mode_pct:.1f}% of rows), top 5 values {x.top5_pct:.0f}%; shape: {x.shape}" + (f"; peaks at {x.kde_peaks}" if x.kde_peaks else "") for x in c.itertuples()]
+        + [f"{ref(x)}: {x.heaping_pct:.0f}% of the values are multiples of {int(x.heaping_step)} (chance {x.heaping_chance_pct:.1f}%): round-number heaping" for x in c.itertuples() if pd.notna(x.heaping_step)]
         + [f"{ref(x)}: peak above {_f(x.valley)} explained by `{x.grouped_by}`: `{x.top_level}` {x.top_level_above_pct:.0f}% vs `{x.bottom_level}` {x.bottom_level_above_pct:.0f}%" for x in mix.itertuples()],
         "A mode is a peak of the distribution; the book mentions bimodal and trimodal distributions with the mode. Several peaks usually mean a mixture of groups.",
         [f"{ref(x)}: one value holds {x.mode_pct:.0f}% of the rows" for x in c.itertuples() if x.mode_pct >= SPIKE_PCT],
