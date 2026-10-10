@@ -62,6 +62,11 @@ tests the project's own upstream flag (`POSOLOGIA_SUSPEITA`) against a per-produ
 `DIAS_ESTOQUE`. Its logic lives in `boxplot_percentiles.py`;
 `percentiles_and_boxplots_report.md` is included and `STUDY_PACK.md` now has five parts.
 
+`STUDY_LESSONS.md` is the text version of the artifact's "Concepts in practice" tab: 21 lessons in the
+order of Chapter 1 of *Practical Statistics for Data Scientists*, each with the book's definition (with
+page), the real numbers from the tables, the business value and the insight. The two books are in the
+repository root.
+
 ## How it fits together
 
 ```
