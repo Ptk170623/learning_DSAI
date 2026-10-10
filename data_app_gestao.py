@@ -21,6 +21,7 @@ import streamlit as st
 
 import boxplot_percentiles
 import data_types_profile
+import distribution_shape
 import location_estimates
 import tidy_rectangular
 import transform
@@ -1738,6 +1739,266 @@ def page_percentiles_and_boxplots() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Histograms and density
+# ---------------------------------------------------------------------------
+
+@st.cache_data(ttl=600, show_spinner="Loading every table and computing histograms and density curves (first load can take minutes)...")
+def _cached_distribution_shape() -> tuple[data_types_profile.Profile, distribution_shape.ShapeResult]:
+    """Same tables as the other profile pages; the cached value holds only
+    counts and aggregates (bin counts, density curves) - never raw rows."""
+    tables = _load_profile_tables()
+    profile = data_types_profile.profile_tables(tables)
+    return profile, distribution_shape.analyze(tables, profile)
+
+
+def _bar_histogram(frame: pd.DataFrame, y_field: str, y_title: str, height: int = 260):
+    import altair as alt
+
+    return alt.Chart(frame).mark_bar(color=_BLUE, opacity=0.75, stroke="white", strokeWidth=0.5).encode(
+        x=alt.X("left:Q", title="Value", axis=alt.Axis(format="~s")), x2="right:Q",
+        y=alt.Y(f"{y_field}:Q", title=y_title),
+        tooltip=[alt.Tooltip("left:Q", format=",.4g", title="from"), alt.Tooltip("right:Q", format=",.4g", title="to"), alt.Tooltip("count:Q", format=",d"),
+                 alt.Tooltip("pct:Q", format=".2f", title="% of rows")],
+    ).properties(height=height)
+
+
+def page_histograms_and_density() -> None:
+    import altair as alt
+
+    st.header("Histograms and density")
+    st.caption(
+        "A frequency table counts the rows in equal bins; a histogram draws it; a density plot is its smoothed version. This page builds them from your own numeric "
+        "columns and shows how the number of bins, the skew, the peaks and the bandwidth change what you see. Only aggregates are shown - never rows or identifier values."
+    )
+    try:
+        profile, result = _cached_distribution_shape()
+    except RuntimeError as error:
+        st.error(f"Could not load the tables: {error}")
+        return
+    cols = result.columns
+    if cols.empty:
+        st.info("No numeric column to analyse.")
+        return
+    table_label = st.selectbox("Table", [_ALL] + sorted(cols["table"].unique()), key="dv_table")
+    st.caption("The selectors filter the tables and charts; the insights and the report always cover all tables.")
+    cv = _only(cols, table_label).assign(label=lambda d: d["table"] + "." + d["column"])
+    choice = st.selectbox("Column to draw", list(cv["label"]), key="dv_column")
+    row = cv[cv["label"] == choice].iloc[0]
+    t_name, c_name = row["table"], row["column"]
+    pick = lambda frame: frame[(frame["table"] == t_name) & (frame["column"] == c_name)]  # noqa: E731
+
+    # --- 1. Frequency table and bin -----------------------------------------------------------
+    st.subheader("Frequency table and bin")
+    st.caption(
+        "Cut the range from the minimum to the maximum into equal-width segments (bins) and count the rows in each. Empty bins stay in the table: "
+        "they say where there are no values. The book's example uses 10 bins."
+    )
+    view = st.radio("Range", ["full range", "central 1%-99%"], horizontal=True, key="dv_view")
+    ten = pick(result.hist)
+    ten = ten[(ten["view"] == view) & (ten["bins"] == distribution_shape.BOOK_BINS)]
+    if ten.empty:
+        st.info("This column has no spread to cut into bins.")
+    else:
+        st.dataframe(
+            pd.DataFrame({"Bin": ten["bin_no"], "From": ten["left"], "To": ten["right"], "Rows": ten["count"], "% of rows": ten["pct"]}),
+            use_container_width=True, hide_index=True,
+            column_config={"Bin": _UNITS_COLUMN, "From": _NUMBER_COLUMN, "To": _NUMBER_COLUMN, "Rows": _UNITS_COLUMN, "% of rows": _PERCENT_COLUMN},
+        )
+        n_in = int(ten["n_in_view"].iloc[0])
+        st.caption(f"{n_in:,} rows in this range; bin width {ten['width'].iloc[0]:,.4g}; {int((ten['count'] == 0).sum())} of {len(ten)} bins are empty.")
+
+    # --- 2. Histogram -------------------------------------------------------------------------------
+    st.subheader("Histogram")
+    st.caption("The frequency table drawn: bins on the x-axis, counts on the y-axis, bars touching, equal widths, empty bins included.")
+    bins = st.select_slider("Number of bins", options=distribution_shape.BIN_CHOICES, value=distribution_shape.BOOK_BINS, key="dv_bins")
+    hist = pick(result.hist)
+    hist = hist[(hist["view"] == view) & (hist["bins"] == bins)]
+    if not hist.empty:
+        st.altair_chart(_bar_histogram(hist, "count", "Rows per bin"), use_container_width=True)
+        st.caption(f"{bins} bins of width {hist['width'].iloc[0]:,.4g} over the {view}.")
+
+    # --- 3. Bin width and number of bins ---------------------------------------------------------------------
+    st.subheader("Bin width and number of bins")
+    st.caption(
+        "Too few bins hide features; too many draw noise. Rules of thumb (not in your books) give a starting point: Sturges (log2 n + 1), square root of n, "
+        "Scott (3.49 x sd x n^(-1/3)) and Freedman-Diaconis (2 x IQR x n^(-1/3)). On skewed data with outliers, the rules that use the range ask for thousands of bins."
+    )
+    rules = _only(result.bin_rules, table_label)
+    st.dataframe(
+        pd.DataFrame({
+            "Table": rules["table"], "Column": rules["column"], "Rows": rules["n"], "Range / IQR": rules["range_over_iqr"], "Sturges": rules["sturges_bins"], "Square root": rules["sqrt_bins"],
+            "Scott": rules["scott_bins"], "Freedman-Diaconis": rules["fd_bins"], "FD, central range": rules["fd_bins_central"],
+            "10 bins: first bin": rules["book_first_bin_pct"], "10 bins: empty": rules["book_empty_bins"],
+        }),
+        use_container_width=True, hide_index=True,
+        column_config={"Rows": _UNITS_COLUMN, "Range / IQR": st.column_config.NumberColumn(format="%,.0f"), "Sturges": _UNITS_COLUMN, "Square root": _UNITS_COLUMN, "Scott": _UNITS_COLUMN,
+                       "Freedman-Diaconis": _UNITS_COLUMN, "FD, central range": _UNITS_COLUMN, "10 bins: first bin": _PERCENT_COLUMN, "10 bins: empty": _UNITS_COLUMN},
+    )
+    allbins = result.hist[(result.hist["table"] == t_name) & (result.hist["column"] == c_name)]
+    if not allbins.empty:
+        empties = allbins.groupby(["view", "bins"])["count"].apply(lambda s: 100.0 * float((s == 0).mean())).reset_index(name="empty_pct")
+        empty_chart = alt.Chart(empties).mark_line(point=True).encode(
+            x=alt.X("bins:O", title="Number of bins"), y=alt.Y("empty_pct:Q", title="Empty bins, %"),
+            color=alt.Color("view:N", title=None, scale=alt.Scale(range=[_BLUE, _ORANGE])), tooltip=["view", "bins", alt.Tooltip("empty_pct:Q", format=".0f")],
+        ).properties(height=200)
+        st.markdown(f"**{choice}: share of empty bins as the number of bins grows**")
+        st.altair_chart(empty_chart, use_container_width=True)
+
+    # --- 4. Skewness -------------------------------------------------------------------------------------------------
+    st.subheader("Skewness")
+    st.caption(
+        "Skewness says whether the data lean to large or small values: positive means a long right tail. The book says it is better seen in a display than measured; here "
+        "it is also given as numbers: skewness (third moment), Pearson (3 x (mean - median) / sd) and Bowley (quartiles); symmetric data give 0."
+    )
+    sk = cv[["label", "skew", "skew_central"]].melt(id_vars="label", var_name="range", value_name="skewness").dropna()
+    sk["range"] = sk["range"].map({"skew": "all rows", "skew_central": "central 1%-99%"})
+    sk_chart = alt.Chart(sk).mark_bar().encode(
+        y=alt.Y("label:N", sort=None, title=None, axis=alt.Axis(labelLimit=320)), yOffset="range:N",
+        x=alt.X("skewness:Q", title="Skewness (symmetric log axis)", scale=alt.Scale(type="symlog")),
+        color=alt.Color("range:N", title=None, scale=alt.Scale(domain=["all rows", "central 1%-99%"], range=[_BLUE, _ORANGE])),
+        tooltip=["label", "range", alt.Tooltip("skewness:Q", format=".2f")],
+    ).properties(height=34 * len(cv) + 60)
+    st.altair_chart(sk_chart, use_container_width=True)
+    st.dataframe(
+        pd.DataFrame({
+            "Table": cv["table"], "Column": cv["column"], "Skewness": cv["skew"], "Pearson": cv["pearson_skew"], "Bowley": cv["bowley_skew"], "Mean": cv["mean"], "Median": cv["median"],
+            "Rows below the mean": cv["below_mean_pct"], "Upper / lower spread": cv["upper_over_lower"], "Direction": cv["direction"],
+        }),
+        use_container_width=True, hide_index=True,
+        column_config={"Skewness": st.column_config.NumberColumn(format="%.2f"), "Pearson": st.column_config.NumberColumn(format="%.2f"), "Bowley": st.column_config.NumberColumn(format="%.2f"),
+                       "Mean": _NUMBER_COLUMN, "Median": _NUMBER_COLUMN, "Rows below the mean": _PERCENT_COLUMN, "Upper / lower spread": st.column_config.NumberColumn(format="%,.1f")},
+    )
+    st.caption("Upper / lower spread is (maximum - median) / (median - minimum): the book's symmetry check says it should be close to 1 for symmetric data.")
+
+    # --- 5. Unimodal and multimodal (mode) ----------------------------------------------------------------------------------
+    st.subheader("Unimodal and multimodal (mode)")
+    st.caption(
+        "The mode is the most frequent value; a peak of the distribution is also called a mode, so a distribution can be unimodal, bimodal or multimodal. "
+        "Peaks are counted on the density curve of the central range (Silverman bandwidth). Several peaks usually mean a mix of groups."
+    )
+    st.dataframe(
+        pd.DataFrame({
+            "Table": cv["table"], "Column": cv["column"], "Mode (most frequent value)": cv["mode_value"], "Share of rows": cv["mode_pct"], "Top 5 values": cv["top5_pct"],
+            "Peaks": cv["kde_modes"], "Shape": cv["shape"], "Peak positions": cv["kde_peaks"],
+        }),
+        use_container_width=True, hide_index=True,
+        column_config={"Mode (most frequent value)": st.column_config.NumberColumn(format="%,.4g"), "Share of rows": _PERCENT_COLUMN, "Top 5 values": _PERCENT_COLUMN, "Peaks": _UNITS_COLUMN},
+    )
+    tv = pick(result.top_values)
+    if not tv.empty:
+        st.markdown(f"**{choice}: its five most frequent values**")
+        top_chart = alt.Chart(tv.assign(value_label=tv["value"].map(lambda x: f"{x:,.4g}"))).mark_bar(color=_ORANGE).encode(
+            y=alt.Y("value_label:N", sort=None, title="Value"), x=alt.X("pct:Q", title="Share of rows, %"), tooltip=["value_label", alt.Tooltip("pct:Q", format=".1f")],
+        ).properties(height=30 * len(tv) + 40)
+        st.altair_chart(top_chart, use_container_width=True)
+    mix = _only(result.mixtures, table_label)
+    if not mix.empty:
+        st.markdown("**What explains a second peak?** For each multimodal column, the category whose levels differ most in the share of rows above the valley between the two highest peaks:")
+        st.dataframe(
+            pd.DataFrame({
+                "Table": mix["table"], "Column": mix["column"], "Valley at": mix["valley"], "Peaks at": mix.apply(lambda x: f"{x['lower_peak']:,.4g} and {x['upper_peak']:,.4g}", axis=1),
+                "Explained by": mix["grouped_by"], "Highest level": mix["top_level"], "Above valley (highest)": mix["top_level_above_pct"], "Lowest level": mix["bottom_level"],
+                "Above valley (lowest)": mix["bottom_level_above_pct"], "Rows above valley overall": mix["overall_above_pct"],
+            }),
+            use_container_width=True, hide_index=True,
+            column_config={"Valley at": st.column_config.NumberColumn(format="%,.4g"), "Above valley (highest)": _PERCENT_COLUMN, "Above valley (lowest)": _PERCENT_COLUMN,
+                           "Rows above valley overall": _PERCENT_COLUMN},
+        )
+
+    # --- 6. Density scale ---------------------------------------------------------------------------------------------------------
+    st.subheader("Density scale")
+    st.caption(
+        "The density scale is the histogram divided by n x bin width. Then the bar areas add up to 1 and the area between two points is the share of rows in between. With equal "
+        "bins only the y-axis units change; with unequal bins it is the only honest picture, because a wide bin collects more rows just by being wide."
+    )
+    if not hist.empty:
+        dens = hist.assign(area=hist["density"] * hist["width"])
+        left, right = st.columns(2)
+        with left:
+            st.markdown("**Counts**")
+            st.altair_chart(_bar_histogram(hist, "count", "Rows per bin", 220), use_container_width=True)
+        with right:
+            st.markdown("**Density**")
+            st.altair_chart(_bar_histogram(hist, "density", "Density (share of rows per unit)", 220), use_container_width=True)
+        st.caption(f"Same bins, same shape. Sum of bar areas (density x width) = {dens['area'].sum():.3f}.")
+    un = pick(result.unequal)
+    if not un.empty:
+        st.markdown(f"**{choice}: the same frequency table with unequal bins** (cut at the 0, 25, 50, 75, 90, 99 and 100th percentiles)")
+        un = un.assign(density_pct=100.0 * un["density"])
+        left, right = st.columns(2)
+        base = alt.Chart(un).encode(x=alt.X("left:Q", title="Value", scale=alt.Scale(type="symlog"), axis=alt.Axis(format="~s")), x2="right:Q",
+                                    tooltip=[alt.Tooltip("left:Q", format=",.4g"), alt.Tooltip("right:Q", format=",.4g"), alt.Tooltip("pct:Q", format=".1f", title="% of rows")])
+        with left:
+            st.markdown("**By count (% of rows per bin)**")
+            st.altair_chart(base.mark_bar(color=_BLUE, opacity=0.75, stroke="white").encode(y=alt.Y("pct:Q", title="% of rows in the bin")).properties(height=220), use_container_width=True)
+        with right:
+            st.markdown("**By density (% of rows per unit of value)**")
+            st.altair_chart(base.mark_bar(color=_ORANGE, opacity=0.75, stroke="white").encode(y=alt.Y("density_pct:Q", title="% of rows per unit", scale=alt.Scale(type="symlog"))).properties(height=220),
+                            use_container_width=True)
+        st.dataframe(
+            pd.DataFrame({"Bin": un["bin_no"], "From": un["left"], "To": un["right"], "Width": un["width"], "Rows": un["count"], "% of rows": un["pct"], "% of rows per unit": un["density_pct"]}),
+            use_container_width=True, hide_index=True,
+            column_config={"Bin": _UNITS_COLUMN, "From": _NUMBER_COLUMN, "To": _NUMBER_COLUMN, "Width": _NUMBER_COLUMN, "Rows": _UNITS_COLUMN, "% of rows": _PERCENT_COLUMN,
+                           "% of rows per unit": st.column_config.NumberColumn(format="%.4g")},
+        )
+
+    # --- 7. Density plot, KDE and bandwidth ---------------------------------------------------------------------------------------------------
+    st.subheader("Density plot, kernel density estimate (KDE) and bandwidth")
+    st.caption(
+        "A kernel density estimate puts one small bell curve on each value and averages them; the bandwidth is the width of each bell. Small bandwidths follow every bump (noise), large "
+        "ones smooth the peaks away. It is computed on the central 1%-99% range; the area under the whole curve is 1."
+    )
+    curve = pick(result.kde)
+    if curve.empty:
+        st.info("This column has no spread for a density curve.")
+    else:
+        h_bins = st.select_slider("Histogram behind the curves (bins)", options=distribution_shape.BIN_CHOICES, value=40, key="dv_kde_bins")
+        bars = pick(result.hist)
+        bars = bars[(bars["view"] == "central 1%-99%") & (bars["bins"] == h_bins)]
+        layers = []
+        if not bars.empty:
+            layers.append(alt.Chart(bars).mark_bar(color="#8a8a85", opacity=0.35).encode(x=alt.X("left:Q", title="Value", axis=alt.Axis(format="~s")), x2="right:Q", y=alt.Y("density:Q", title="Density")))
+        order = [label for label, _ in distribution_shape.BANDWIDTH_FACTORS]
+        layers.append(alt.Chart(curve).mark_line(strokeWidth=2).encode(
+            x=alt.X("x:Q", title="Value"), y=alt.Y("density:Q", title="Density"),
+            color=alt.Color("bandwidth:N", title="Bandwidth", sort=order, scale=alt.Scale(domain=order, range=[_ORANGE, _BLUE, "#1baf7a"])),
+            tooltip=["bandwidth", alt.Tooltip("x:Q", format=",.4g"), alt.Tooltip("density:Q", format=".3g")]))
+        st.altair_chart(alt.layer(*layers).properties(height=300), use_container_width=True)
+        one = pick(result.bandwidth)
+        if not one.empty:
+            b = one.iloc[0]
+            st.markdown(
+                f"**{choice}**: Silverman bandwidth h = {b['bandwidth_h']:,.4g} ({b['bandwidth_pct_of_central_range']:.1f}% of the plotted range). Peaks: {int(b['modes_small'])} with h / 4, "
+                f"{int(b['modes_rule'])} with h, {int(b['modes_large'])} with h x 4. Area under the Silverman curve inside the plotted range: {b['area_under_curve']:.3f}. "
+                f"Share of the density below the column's minimum ({b['minimum']:,.4g}): {b['mass_below_minimum_pct']:.1f}%."
+            )
+    bwv = _only(result.bandwidth, table_label)
+    st.dataframe(
+        pd.DataFrame({
+            "Table": bwv["table"], "Column": bwv["column"], "Bandwidth h": bwv["bandwidth_h"], "Peaks (h / 4)": bwv["modes_small"], "Peaks (h)": bwv["modes_rule"], "Peaks (4h)": bwv["modes_large"],
+            "Density below the minimum": bwv["mass_below_minimum_pct"], "Distinct values": bwv["distinct"],
+        }),
+        use_container_width=True, hide_index=True,
+        column_config={"Bandwidth h": st.column_config.NumberColumn(format="%,.4g"), "Peaks (h / 4)": _UNITS_COLUMN, "Peaks (h)": _UNITS_COLUMN, "Peaks (4h)": _UNITS_COLUMN,
+                       "Density below the minimum": _PERCENT_COLUMN, "Distinct values": _UNITS_COLUMN},
+    )
+    st.caption("A density below the minimum is probability given to values the column never takes: a warning to use a bar chart for counts and columns with few distinct values.")
+
+    # --- Insights + report ------------------------------------------------------------------------------
+    insights = distribution_shape.build_insights(result)
+    st.subheader("Insights")
+    with st.container(border=True):
+        for number, insight in enumerate(insights, start=1):
+            st.markdown(f"**{number}. {insight.title}** - {insight.finding}")
+            st.markdown(f"- *Risk:* {insight.risk}\n- *Fix:* {insight.fix}")
+    st.subheader("Result report")
+    report = distribution_shape.build_report(result, insights)
+    st.download_button("Download the result report (.md)", report, file_name="histograms_and_density_report.md", mime="text/markdown")
+    with st.expander("Preview the result report"):
+        st.markdown(report)
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -1751,6 +2012,7 @@ def main() -> None:
         st.Page(page_estimates_of_location, title="Estimates of location", icon="📍"),
         st.Page(page_estimates_of_variability, title="Estimates of variability", icon="📏"),
         st.Page(page_percentiles_and_boxplots, title="Percentiles and boxplots", icon="📦"),
+        st.Page(page_histograms_and_density, title="Histograms and density", icon="📊"),
     ])
     navigation.run()
 

@@ -62,6 +62,13 @@ tests the project's own upstream flag (`POSOLOGIA_SUSPEITA`) against a per-produ
 `DIAS_ESTOQUE`. Its logic lives in `boxplot_percentiles.py`;
 `percentiles_and_boxplots_report.md` is included and `STUDY_PACK.md` now has five parts.
 
+A ninth page, **Histograms and density**, builds frequency tables and histograms for every numeric column
+(10 equal bins as in the book, 5 to 80 bins, full and central range), compares rules of thumb for the
+number of bins, measures skewness, finds the mode and the peaks of the density (and which category explains a
+second peak), shows the density scale with unequal bins, and draws kernel density estimates at three
+bandwidths. Its logic lives in `distribution_shape.py`; `histograms_and_density_report.md` is included and
+`STUDY_PACK.md` now has six parts.
+
 `STUDY_LESSONS.md` is the text version of the artifact's "Concepts in practice" tab: 21 lessons in the
 order of Chapter 1 of *Practical Statistics for Data Scientists*, each with the book's definition (with
 page), the real numbers from the tables, the business value and the insight. The two books are in the
@@ -227,4 +234,6 @@ an empty result on read.
   (pure pandas, no Streamlit).
 - `boxplot_percentiles.py` — percentiles and boxplots analysis for its page
   (pure pandas, no Streamlit).
-- `data_app_gestao.py` — the Streamlit UI (8 pages).
+- `distribution_shape.py` — frequency table, histogram and density analysis for its page
+  (pure pandas/numpy, no Streamlit).
+- `data_app_gestao.py` — the Streamlit UI (9 pages).
