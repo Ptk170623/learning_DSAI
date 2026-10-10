@@ -1,6 +1,6 @@
 # Statistics in Practice: lessons (text version of the artifact)
 
-Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck), taught on the project's real, anonymized data. Same content as the lessons at the top of each tab of the artifact: for each concept, what the book says (with printed page numbers), the real numbers, why it matters for the business, and the insight. Concepts that are not in the two books are labelled 'Outside your two books'.
+Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck), taught on the project's real, anonymized data. Same content as the lessons at the top of each tab of the artifact: for each concept, a plain-words definition with a small example, what the book says (with printed page numbers), the real numbers, why it matters for the business, and the insight. Concepts that are not in the two books are labelled 'Outside your two books'.
 
 ## A. Elements of structured data
 *Practical Statistics, Chapter 1, pp.2-4*
@@ -8,6 +8,20 @@ Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck),
 ### A1 - Structured data and its types
 
 **Concepts:** Structured data; Variable (column); Observation (row); Data type; Numeric; Continuous; Discrete; Categorical; Nominal; Binary; Ordinal; Level
+
+**The concepts in plain words**
+- **Structured data:** Data kept in a table: each row is one record and each column is one kind of information, the same for every row. *Example:* A sales table: each row is one sale line; the columns are the date, the product, the quantity and the revenue. A folder of PDF invoices is not structured data until somebody turns it into such a table.
+- **Variable (column):** One kind of information recorded for every record. Other names: field, feature, attribute. *Example:* QUANTIDADE (quantity) is a variable: every sale line has its own value for it.
+- **Observation (row):** One record: everything the table knows about one case. Other names: case, record. *Example:* One row = one product line of one sale, with its date, product, quantity and revenue together.
+- **Data type:** The kind of values a variable holds. It decides what you can sensibly do with them: add them up, put them in order, count them, or only list them. *Example:* You can add up revenue and you can sort sizes S < M < L, but with product names you can only count and compare.
+- **Numeric:** A variable whose values are numbers you can do arithmetic with: sum, average, difference. *Example:* Revenue 1,500 and quantity 2 are numeric. An average of them means something.
+- **Continuous:** A numeric variable that can take any value in a range, usually because it is measured. Decimals make sense. *Example:* A revenue of 1,499.90; a waiting time of 12.4 minutes.
+- **Discrete:** A numeric variable that takes only whole values, usually because it is counted. *Example:* 2 boxes sold. Never 2.5 boxes.
+- **Categorical:** A variable whose values are labels from a fixed list, not quantities. *Example:* Payment type: cash, card or transfer.
+- **Nominal:** Categories with no natural order. *Example:* Product names, or the states of a country.
+- **Binary:** A categorical variable with only two possible values: yes/no, true/false, 0/1. *Example:* 'First purchase of the client': yes or no. The average of a column of 0 and 1 is the share of 'yes'.
+- **Ordinal:** Categories that have a natural order, but where the gaps between them are not measured. *Example:* Small < medium < large, or a rating from 1 to 5: 4 is better than 2, but not necessarily 'twice as good'.
+- **Level:** One distinct value of a categorical variable. *Example:* Payment type with the values cash, card and transfer has three levels.
 
 **Source:** Practical Statistics, Ch.1, 'Elements of Structured Data', pp.2-4 | Morettin & Bussab, Ch.2, §2.1 'Tipos de Variáveis', p.9
 
@@ -33,6 +47,11 @@ Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck),
 ### A2 - Stored type versus statistical type, and the identifier
 
 **Concepts:** Stored type vs. statistical type; Dtype; Identifier
+
+**The concepts in plain words**
+- **Stored type vs. statistical type:** Stored type: how the computer holds the value (text, whole number, decimal, date, true/false). Statistical type: what the variable really is (a quantity, a category, an identifier, a date). They can disagree. *Example:* A yes/no flag saved as 1 and 0 is stored as a number but is really a category. Its average, 0.3, only means '30% are yes'.
+- **Dtype:** The name pandas gives to the stored type of a column: int64 (whole number), float64 (decimal), object or str (text), datetime64 (date), bool (true/false). *Example:* If a column of 1s and 0s is read as text, filtering it with == 1 finds no row at all, and there is no error.
+- **Identifier:** A value that names a record or a thing, such as a sale code or an employee number. It is a label, not a quantity. *Example:* Employee numbers 12 and 4057: 4057 is not 'more' than 12, and the average of employee numbers means nothing.
 
 **Source:** Practical Statistics, Ch.1, 'Elements of Structured Data', p.3 (data typing as a signal to the software)
 
@@ -62,6 +81,14 @@ Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck),
 
 **Concepts:** Rectangular data; Data frame; Record; Feature; Outcome; Index
 
+**The concepts in plain words**
+- **Rectangular data:** A table where every row has the same columns: rows are records, columns are features. The standard shape for analysis. *Example:* A spreadsheet with a header row and one record per line.
+- **Data frame:** The object that holds a rectangular table in R or Python (pandas), with a name and a type for every column. *Example:* In pandas, df['QUANTIDADE'] gets the quantity column and df.shape gives (number of rows, number of columns).
+- **Record:** One row of the table. The key (the column, or columns, that are unique) tells you what one record stands for. *Example:* In a table of sale lines, a record is one product line of one sale, not the whole sale.
+- **Feature:** A column that describes a record or helps to predict something. Other names: predictor, variable, attribute. *Example:* Product, payment type and quantity are features of a sale.
+- **Outcome:** The column you want to explain or predict. Other names: response, target. *Example:* Revenue is the outcome; product and quantity are features used to explain it.
+- **Index:** The label of each row. In pandas the default is the numbers 0, 1, 2, and so on. *Example:* Row 0 is just 'the first row'; it does not say which sale it is. That is the job of an identifier column.
+
 **Source:** Practical Statistics, Ch.1, 'Rectangular Data', pp.4-6 and 'Data Frames and Indexes', p.6
 
 **What the book says**
@@ -89,6 +116,9 @@ Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck),
 
 **Concepts:** Nonrectangular data structures
 
+**The concepts in plain words**
+- **Nonrectangular data structures:** Data that does not fit one table of rows and columns. The book names three: time series (the same measurement over time), spatial data (things with coordinates) and graph data (things and the links between them). *Example:* Daily sales of one product is a time series; a map of pharmacy locations is spatial data; doctors and the pharmacies they visit, joined by lines, form a graph.
+
 **Source:** Practical Statistics, Ch.1, 'Nonrectangular Data Structures', pp.6-7
 
 **What the book says**
@@ -113,6 +143,10 @@ Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck),
 
 **Concepts:** Tidy data; Duplicate key
 
+**The concepts in plain words**
+- **Tidy data:** A way of arranging tables: each variable is one column, each observation is one row, and each type of thing (sale, client, doctor) has its own table. *Example:* If every row of the sales table repeats the client's name and city, client facts are stored inside the sale table. A tidy design keeps a separate client table.
+- **Duplicate key:** A key (the column used to match rows) that appears more than once. *Example:* Joining two tables on a sale code that appears 3 times in each table returns 3 x 3 = 9 rows for that code, not 3.
+
 **Source:** Outside your two books: Wickham, 'Tidy Data' (Journal of Statistical Software, 2014)
 
 **What the book says**
@@ -135,6 +169,9 @@ Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck),
 ### B4 - Wide and long
 
 **Concepts:** Wide and long
+
+**The concepts in plain words**
+- **Wide and long:** Long: one row per event (one row per sale line). Wide: one column per period or category (one column per month). Pivoting turns long into wide. *Example:* Long: (Jan, product A, 10) and (Feb, product A, 12). Wide: product A | Jan 10 | Feb 12. In the wide form a month with no sale becomes an empty cell.
 
 **Source:** Outside your two books: Wickham, 'Tidy Data', 2014; pandas pivot_table
 
@@ -159,6 +196,9 @@ Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck),
 
 **Concepts:** Data matrix
 
+**The concepts in plain words**
+- **Data matrix:** The all-numeric version of a table, needed by models and matrix routines. Text columns must first be turned into numbers and empty cells must be handled. *Example:* A payment-type column (cash, card, transfer) becomes three 0/1 columns, one per level ('one-hot' encoding); a row with a blank quantity is dropped or filled.
+
 **Source:** Outside your two books: design (data) matrix of regression and machine learning
 
 **What the book says**
@@ -180,6 +220,11 @@ Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck),
 ### B6 - Silent errors
 
 **Concepts:** Silent error; Dtype; Duplicate key
+
+**The concepts in plain words**
+- **Silent error:** A wrong or empty result that comes with no error message and no warning, so it passes unnoticed. *Example:* Filtering flag == 1 when the flag is stored as the text '1' returns zero rows: the program runs and the report is simply empty.
+- **Dtype:** The name pandas gives to the stored type of a column: int64 (whole number), float64 (decimal), object or str (text), datetime64 (date), bool (true/false). *Example:* If a column of 1s and 0s is read as text, filtering it with == 1 finds no row at all, and there is no error.
+- **Duplicate key:** A key (the column used to match rows) that appears more than once. *Example:* Joining two tables on a sale code that appears 3 times in each table returns 3 x 3 = 9 rows for that code, not 3.
 
 **Source:** Outside your two books: pandas behaviour (merge, groupby, comparison of dtypes)
 
@@ -207,6 +252,12 @@ Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck),
 
 **Concepts:** Estimate of location; Mean; Trimmed mean; Median
 
+**The concepts in plain words**
+- **Estimate of location:** A single number that says where the centre, or the 'typical value', of a variable is. *Example:* For five sale lines of 100, 120, 130, 150 and 5,000 the centre could be the mean (1,100) or the median (130): different estimates, different answers.
+- **Mean:** Add all the values and divide by how many there are. Mean x count = total. *Example:* (100 + 120 + 130 + 150 + 5,000) / 5 = 1,100. The one big sale of 5,000 pulled the mean far above the other four.
+- **Trimmed mean:** Drop a fixed number (or share) of the lowest and the highest values, then take the mean of the rest. *Example:* Drop the lowest and the highest of the five sales; the mean of 120, 130 and 150 is 133.3.
+- **Median:** Sort the values; the median is the middle one (with an even count, the average of the two middle ones). Half the values are below it and half above. *Example:* Sorted 100, 120, 130, 150, 5,000: the middle value is 130. For 100, 120, 150, 5,000 the median is (120 + 150) / 2 = 135.
+
 **Source:** Practical Statistics, Ch.1, 'Estimates of Location', pp.7-12 | Morettin & Bussab, §3.1 'Medidas de Posição', p.35
 
 **What the book says**
@@ -229,6 +280,10 @@ Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck),
 ### C2 - Outlier and robust
 
 **Concepts:** Outlier; Robust
+
+**The concepts in plain words**
+- **Outlier:** A value very far from the rest. It can be an error (wrong unit, typo) or a real extreme (a very large order); the first job is to find out which. *Example:* In 100, 120, 130, 150 and 5,000 the 5,000 is an outlier. A real hospital order, or a typo with extra zeros?
+- **Robust:** An estimate is robust when a few outliers hardly move it. The median is robust; the mean is not. *Example:* Take the 5,000 out: the mean drops from 1,100 to 125, but the median only from 130 to 125.
 
 **Source:** Practical Statistics, Ch.1, 'Median and Robust Estimates' and 'Outliers', pp.10-11 | Morettin & Bussab, §3.3, p.43 (the median is 'resistente')
 
@@ -253,6 +308,11 @@ Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck),
 
 **Concepts:** Weight; Weighted mean; Weighted median
 
+**The concepts in plain words**
+- **Weight:** How much each value counts in an average. A weight of 3 counts like three identical rows. *Example:* A price of 20 that applies to 9 boxes has weight 9; a price of 10 for 1 box has weight 1.
+- **Weighted mean:** Multiply each value by its weight, add up, and divide by the sum of the weights. *Example:* Price 10 for 1 box and 20 for 9 boxes. Plain mean: (10 + 20) / 2 = 15. Weighted by boxes: (10 x 1 + 20 x 9) / 10 = 19, the real average price per box.
+- **Weighted median:** Sort the values and add their weights until you reach half of the total weight; the value where you get there is the weighted median. *Example:* Prices 10 (1 box) and 20 (9 boxes): total weight 10, half is 5. The price 10 only reaches 1, the price 20 reaches 10, so the weighted median is 20. The plain median is 15.
+
 **Source:** Practical Statistics, Ch.1, 'Mean' (weighted mean), p.10, and 'Median and Robust Estimates' (weighted median), p.11; example p.12-13
 
 **What the book says**
@@ -275,6 +335,10 @@ Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck),
 ### C4 - Sample and estimate
 
 **Concepts:** Sample; Estimate
+
+**The concepts in plain words**
+- **Sample:** A subset of the rows, taken from a bigger set (the population). Careful: for programmers 'sample' sometimes means one single row. *Example:* The 5 sale lines above taken from a month that has thousands of lines.
+- **Estimate:** A number computed from the data you have, standing for a value you cannot see for the whole population. Another sample gives another number. *Example:* The mean of one sample of 5 lines is 1,100; another 5 lines could give something quite different. That difference is the uncertainty of an estimate.
 
 **Source:** Practical Statistics, Ch.1, box 'Metrics and Estimates', p.9, and box 'Terminology Differences', p.6
 
@@ -299,6 +363,9 @@ Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck),
 ### C5 - Mean versus median: when to use each
 
 **Concepts:** Mean vs. median: when to use each
+
+**The concepts in plain words**
+- **Mean vs. median: when to use each:** Use the mean when you need a total or the data are symmetric. Use the median (or a trimmed mean) when you want the typical row and the data are skewed or have outliers. *Example:* To plan the total revenue of the 5 lines use the mean: 1,100 x 5 = 5,500. To describe the typical line use the median: 130.
 
 **Source:** Practical Statistics, Ch.1, 'Key Ideas', p.13; 'Median and Robust Estimates', p.10
 
@@ -325,6 +392,14 @@ Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck),
 
 **Concepts:** Variability; Deviation; Variance; Standard deviation; Degrees of freedom and n minus 1; Bias
 
+**The concepts in plain words**
+- **Variability:** How spread out the values are: tightly bunched around the centre, or scattered. *Example:* Weekly sales of 98, 100 and 102 against 20, 100 and 180: the same mean (100), very different variability.
+- **Deviation:** The difference between one value and the centre (usually the mean). *Example:* Values 1, 2, 3, 3, 5, 6, 7, 9 have mean 4.5. The deviation of 9 is +4.5; of 1 it is -3.5.
+- **Variance:** Square every deviation, add them up and divide by n - 1. Its unit is the square of the original unit. *Example:* The squared deviations of the 8 values add up to 52, and 52 / 7 = 7.43.
+- **Standard deviation:** The square root of the variance: back in the original unit, roughly the typical distance of a value from the mean. *Example:* The square root of 7.43 is 2.73.
+- **Degrees of freedom and n - 1:** To estimate the spread you first use the same data to find the mean, which leaves n - 1 independent pieces of information. Dividing by n - 1 instead of n corrects for it. *Example:* For the 8 values: 52 / 8 = 6.5 (too low), 52 / 7 = 7.43 (the usual choice).
+- **Bias:** An estimate that is off in the same direction on average (always too low or always too high), not just randomly wrong. *Example:* Dividing by n gives a variance that is, on average, too low: over many samples of 10 rows it falls about 10% short.
+
 **Source:** Practical Statistics, Ch.1, 'Estimates of Variability' and 'Standard Deviation and Related Estimates', pp.13-16 | Morettin & Bussab, §3.2 'Medidas de Dispersão', p.37
 
 **What the book says**
@@ -347,6 +422,10 @@ Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck),
 ### D2 - Mean absolute deviation and the MAD
 
 **Concepts:** Mean absolute deviation; MAD (median absolute deviation)
+
+**The concepts in plain words**
+- **Mean absolute deviation:** Take every deviation from the mean without its sign (absolute value) and average them. *Example:* The absolute deviations of the 8 values are 3.5, 2.5, 1.5, 1.5, 0.5, 1.5, 2.5 and 4.5. They add up to 18, and 18 / 8 = 2.25.
+- **MAD (median absolute deviation):** For each value take its distance from the median, then take the median of those distances. Outliers do not move it. Multiplied by 1.4826 it is on the scale of a standard deviation. *Example:* The median is 4. The distances are 3, 2, 1, 1, 1, 2, 3, 5; sorted 1, 1, 1, 2, 2, 3, 3, 5, their median is 2. Scaled: 2 x 1.4826 = 2.97.
 
 **Source:** Practical Statistics, Ch.1, 'Standard Deviation and Related Estimates', pp.14-16 | Morettin & Bussab, §3.2 'Medidas de Dispersão', p.37
 
@@ -371,6 +450,13 @@ Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck),
 
 **Concepts:** Range; Order statistics; Percentile; Quartiles (Q1, Q2, Q3); IQR (interquartile range)
 
+**The concepts in plain words**
+- **Range:** The largest value minus the smallest. *Example:* 9 - 1 = 8. One extra value of 900 would make it 899.
+- **Order statistics:** The values sorted from smallest to largest: the 1st, the 2nd, ... the n-th. *Example:* Sorted 1, 2, 3, 3, 5, 6, 7, 9: the 3rd order statistic is 3.
+- **Percentile:** The P-th percentile is a value with at least P% of the data at or below it and at least (100 - P)% at or above it. To find it: sort the data and go P% of the way from the smallest to the largest. *Example:* Sorted 1, 2, 3, 3, 5, 6, 7, 9: the 50th percentile is 4 (the median), the 25th percentile is 2.75 and the 75th is 6.25 (with the linear rule of pandas).
+- **Quartiles (Q1, Q2, Q3):** The 25th, 50th and 75th percentiles. They cut the sorted data into four parts with the same number of values. Q2 is the median. *Example:* For 1, 2, 3, 3, 5, 6, 7, 9: Q1 = 2.75, Q2 = 4, Q3 = 6.25.
+- **IQR (interquartile range):** Q3 minus Q1: the width of the middle half of the data. Outliers hardly move it. *Example:* 6.25 - 2.75 = 3.5. Add one value of 900: the IQR becomes 4 while the range jumps from 8 to 899.
+
 **Source:** Practical Statistics, Ch.1, 'Estimates Based on Percentiles', pp.16-18 | Morettin & Bussab, §3.3 'Quantis Empíricos', p.41
 
 **What the book says**
@@ -394,6 +480,12 @@ Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck),
 
 **Concepts:** Variability; Deviation; MAD (median absolute deviation)
 
+**The concepts in plain words**
+- **Variability:** How spread out the values are: tightly bunched around the centre, or scattered. *Example:* Weekly sales of 98, 100 and 102 against 20, 100 and 180: the same mean (100), very different variability.
+- **Deviation:** The difference between one value and the centre (usually the mean). *Example:* Values 1, 2, 3, 3, 5, 6, 7, 9 have mean 4.5. The deviation of 9 is +4.5; of 1 it is -3.5.
+- **MAD (median absolute deviation):** For each value take its distance from the median, then take the median of those distances. Outliers do not move it. Multiplied by 1.4826 it is on the scale of a standard deviation. *Example:* The median is 4. The distances are 3, 2, 1, 1, 1, 2, 3, 5; sorted 1, 1, 1, 2, 2, 3, 3, 5, their median is 2. Scaled: 2 x 1.4826 = 2.97.
+- **Deviation bands (in the app):** Fixed percentage limits around a benchmark: a month is NEUTRAL within 10% of the benchmark, SLIGHTLY ABOVE or BELOW within 25%, ABOVE or BELOW within 40%, and MUCH ABOVE or BELOW beyond that. They do not use the data's own spread. *Example:* Against a benchmark of 100: a month at 95 is 5% below, NEUTRAL; a month at 120 is 20% above, SLIGHTLY above.
+
 **Source:** The project's transform.classify_deviation (bands of 10%, 25%, 40%)
 
 **What the book says**
@@ -416,13 +508,21 @@ Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck),
 ## E. Exploring the data distribution: percentiles and boxplots
 *Practical Statistics, Chapter 1, pp.19-26*
 
-### E1 - Percentile and quartile calculation: position and interpolation
+### E1 - Percentile, median, quartiles and IQR: what they are and how they are calculated
 
-**Concepts:** Percentile; Quartiles (Q1, Q2, Q3); Quartile calculation (position and interpolation)
+**Concepts:** Percentile; Median; Quartiles (Q1, Q2, Q3); IQR (interquartile range); Quartile calculation (position and interpolation)
 
-**Source:** Practical Statistics, Ch.1, box 'Percentile: Precise Definition', p.17, and the IQR example, p.17 | Morettin & Bussab, §3.3, Example 3.5, pp.42-43
+**The concepts in plain words**
+- **Percentile:** The P-th percentile is a value with at least P% of the data at or below it and at least (100 - P)% at or above it. To find it: sort the data and go P% of the way from the smallest to the largest. *Example:* Sorted 1, 2, 3, 3, 5, 6, 7, 9: the 50th percentile is 4 (the median), the 25th percentile is 2.75 and the 75th is 6.25 (with the linear rule of pandas).
+- **Median:** Sort the values; the median is the middle one (with an even count, the average of the two middle ones). Half the values are below it and half above. *Example:* Sorted 100, 120, 130, 150, 5,000: the middle value is 130. For 100, 120, 150, 5,000 the median is (120 + 150) / 2 = 135.
+- **Quartiles (Q1, Q2, Q3):** The 25th, 50th and 75th percentiles. They cut the sorted data into four parts with the same number of values. Q2 is the median. *Example:* For 1, 2, 3, 3, 5, 6, 7, 9: Q1 = 2.75, Q2 = 4, Q3 = 6.25.
+- **IQR (interquartile range):** Q3 minus Q1: the width of the middle half of the data. Outliers hardly move it. *Example:* 6.25 - 2.75 = 3.5. Add one value of 900: the IQR becomes 4 while the range jumps from 8 to 899.
+- **Quartile calculation (position and interpolation):** Step 1: sort. Step 2: position = (n - 1) x p, counted from 0. Step 3: if the position is not a whole number, blend the two neighbouring values: lower + fraction x (upper - lower). *Example:* 1, 2, 3, 3, 5, 6, 7, 9 has n = 8 and p = 0.25. Position = 7 x 0.25 = 1.75: between the value at position 1 (which is 2) and the one at position 2 (which is 3), 0.75 of the way: 2 + 0.75 x (3 - 2) = 2.75.
+
+**Source:** Practical Statistics, Ch.1, 'Estimates Based on Percentiles', pp.16-17, box 'Percentile: Precise Definition', p.17 | Morettin & Bussab, §3.3 'Quantis Empíricos', pp.41-43, Example 3.5
 
 **What the book says**
+- The book defines the P-th percentile as a value such that at least P percent of the values are that value or less, and at least (100 - P) percent are that value or more. To find the 80th percentile you sort the data and, starting from the smallest value, go 80 percent of the way to the largest. The median is the same thing as the 50th percentile. A quantile is the same idea indexed by fractions (the 0.8 quantile is the 80th percentile). The interquartile range (IQR) is the 75th percentile minus the 25th (p.16-17).
 - The book's example {3,1,5,3,6,7,2,9}, sorted {1,2,3,3,5,6,7,9}, gives a 25th percentile of 2.5 and a 75th of 6.5, an IQR of 4. It warns that software can differ slightly, and that the percentile is a weighted average of two neighbouring sorted values with different choices of the weight; R offers nine ways, NumPy at the time of writing only one: linear interpolation.
 - Morettin & Bussab take the quartile as the median of each half of the sorted data (example 3.5: q1 = (3+5)/2 = 4, q3 = (11+12)/2 = 11.5) and note the difficulty of defining other quantiles.
 - *Note: Discovery on running it: NumPy's default (linear) does NOT reproduce the book's 2.5 and 6.5. It gives 2.75 and 6.25. The midpoint method does reproduce them.*
@@ -432,6 +532,7 @@ Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck),
 - book example, midpoint: **Q1 2.5, Q3 6.5**
 - FATURAMENTO Q1 position (n - 1) x 0.25: **18,168.25**
 - neighbours there: **1,098 and 1,098**
+- *Chart: Worked example, step by step: the book's data 3, 1, 5, 3, 6, 7, 2, 9.* The same steps for any column: sort, find the position, read or blend the neighbours.
 - *Chart: The book's own example under six quartile methods.* Data {3,1,5,3,6,7,2,9}. Position = (n - 1) x p on the sorted values counted from 0, then the method picks or blends the neighbours.
 - *Chart: Real groups: how much Q1 changes with the method.* Spread of Q1 across the six methods, as % of the group's IQR, for the smallest real groups.
 
@@ -444,6 +545,13 @@ Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck),
 ### E2 - The boxplot: box, median line, whiskers, caps and fences
 
 **Concepts:** Boxplot (box, median line); Whisker and cap; Fences (lower and upper) and the 1.5 × IQR rule; Outlier; Robust (mean vs. median/IQR)
+
+**The concepts in plain words**
+- **Boxplot (box, median line):** A drawing of the distribution in five numbers: a box from Q1 to Q3, a line inside it at the median, and whiskers reaching to the furthest ordinary values. Extreme values are drawn as separate points. *Example:* For 1, 2, 3, 3, 5, 6, 7, 9: the box goes from 2.75 to 6.25, the line sits at 4, the whiskers reach 1 and 9.
+- **Whisker and cap:** The whisker is the line from the box to the furthest value that is not an outlier; the cap is the short tick that ends it. *Example:* With fences at -2.5 and 11.5, the largest value inside is 9, so the upper whisker ends (with its cap) at 9.
+- **Fences and the 1.5 x IQR rule:** Lower fence = Q1 - 1.5 x IQR; upper fence = Q3 + 1.5 x IQR. A value outside the fences is drawn as its own point and treated as a possible outlier. *Example:* Q1 = 2.75, Q3 = 6.25, IQR = 3.5: the fences are 2.75 - 5.25 = -2.5 and 6.25 + 5.25 = 11.5. A value of 30 would be outside.
+- **Outlier:** A value very far from the rest. It can be an error (wrong unit, typo) or a real extreme (a very large order); the first job is to find out which. *Example:* In 100, 120, 130, 150 and 5,000 the 5,000 is an outlier. A real hospital order, or a typo with extra zeros?
+- **Robust (mean vs. median / IQR):** The median and the IQR barely move when outliers appear; the mean and the standard deviation do. In a boxplot, a mean that falls outside the box signals a skewed column. *Example:* 1, 2, 3, 3, 5, 6, 7, 9 plus 900: the mean jumps from 4.5 to 104, the median only from 4 to 5.
 
 **Source:** Practical Statistics, Ch.1, 'Percentiles and Boxplots', pp.20-21 | Morettin & Bussab, §3.4 'Box Plots', pp.47-50
 
@@ -469,6 +577,9 @@ Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck),
 
 **Concepts:** Comparing groups with boxplots
 
+**The concepts in plain words**
+- **Comparing groups with boxplots:** Draw one box per group on the same axis. Compare the median lines (centre), the box heights (spread) and the whiskers and points (extremes). If the boxes overlap a lot, the groups are not clearly different. *Example:* Group A has a box from 100 to 140 with median 120; group B a box from 110 to 160 with median 130. The boxes overlap, so the 10 of difference is small next to the natural spread.
+
 **Source:** Practical Statistics, Ch.1, 'Key Ideas' (boxplots in side-by-side displays), p.26; Morettin & Bussab, §3.4, p.47
 
 **What the book says**
@@ -490,6 +601,10 @@ Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck),
 ### E4 - A boxplot fence already in the project
 
 **Concepts:** Fences (lower and upper) and the 1.5 × IQR rule; Outlier
+
+**The concepts in plain words**
+- **Fences and the 1.5 x IQR rule:** Lower fence = Q1 - 1.5 x IQR; upper fence = Q3 + 1.5 x IQR. A value outside the fences is drawn as its own point and treated as a possible outlier. *Example:* Q1 = 2.75, Q3 = 6.25, IQR = 3.5: the fences are 2.75 - 5.25 = -2.5 and 6.25 + 5.25 = 11.5. A value of 30 would be outside.
+- **Outlier:** A value very far from the rest. It can be an error (wrong unit, typo) or a real extreme (a very large order); the first job is to find out which. *Example:* In 100, 120, 130, 150 and 5,000 the 5,000 is an outlier. A real hospital order, or a typo with extra zeros?
 
 **Source:** The project's README (the churn section excludes a flagged outlier tier) and transform.calculate_churns_in_month
 
@@ -517,6 +632,11 @@ Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck),
 
 **Concepts:** Frequency table; Bin; Histogram
 
+**The concepts in plain words**
+- **Frequency table:** Cut the range of a numeric variable into equal-width segments (bins) and count how many values fall in each. *Example:* 1, 2, 3, 3, 5, 6, 7, 9 in 4 bins of width 2: 1 to 3 holds 2 values; 3 to 5 holds 2; 5 to 7 holds 2; 7 to 9 holds 2. A value on an edge goes to the upper bin (the last bin includes its top edge).
+- **Bin:** One segment of the range in a frequency table. The book's other word is 'class'. All bins have the same width. *Example:* In the table above, '3 to 5' is one bin.
+- **Histogram:** A frequency table drawn as bars: the bins along the horizontal axis, the number of values (or their share) on the vertical axis, bars touching. Empty bins stay in the picture. *Example:* A bar chart compares different categories (payment types); a histogram shows one number line cut into bins.
+
 **Source:** Practical Statistics, Ch.1, 'Frequency Tables and Histograms', pp.22-23 (and Key Terms, p.21) | Morettin & Bussab, Ch.2, §2.2 'Distribuições de Frequências', pp.12-14, and §2.3 'Gráficos' (histograma), p.18
 
 **What the book says**
@@ -543,6 +663,9 @@ Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck),
 ### F2 - Bin width and number of bins
 
 **Concepts:** Bin width and number of bins
+
+**The concepts in plain words**
+- **Bin width and number of bins:** Bin width = range / number of bins. More bins means narrower bins. Too few bins hide features; too many bins draw noise. *Example:* Range 1 to 9: 4 bins give width 2, 8 bins give width 1. With only 8 values, 8 bins leave 1 or 2 values per bar: that is all noise.
 
 **Source:** Practical Statistics, Ch.1, p.23 ('the number of bins is up to the user'; 'experiment with different bin sizes') | Morettin & Bussab, Ch.2, §2.2, p.13 (5 to 15 classes of equal width) and Ch.2 §2.6 'Problema 10', p.27 (unequal classes)
 
@@ -572,6 +695,9 @@ Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck),
 
 **Concepts:** Skewness
 
+**The concepts in plain words**
+- **Skewness:** Whether the values lean toward large values (a long tail on the right: positive skew), toward small values (negative), or are balanced (about zero). *Example:* 1, 2, 3, 3, 5, 6, 7, 9 are nearly balanced. Add 900: the mean is 104 while the median is 5, a strong right skew.
+
 **Source:** Practical Statistics, Ch.1, 'Statistical Moments' (box), p.24 | Morettin & Bussab, Ch.3, §3.4 (symmetry from the five numbers), p.45, and §3.5 'Gráficos de Simetria', p.51
 
 **What the book says**
@@ -597,6 +723,12 @@ Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck),
 ### F4 - Mode, unimodal and multimodal
 
 **Concepts:** Mode; Unimodal; Bimodal; Multimodal
+
+**The concepts in plain words**
+- **Mode:** The most frequent value. *Example:* In 1, 2, 3, 3, 5, 6, 7, 9 the mode is 3 (it appears twice).
+- **Unimodal:** A distribution with one peak (one hump). *Example:* Heights of adults of one sex: most values around one centre.
+- **Bimodal:** A distribution with two peaks. It usually means two kinds of rows are mixed. *Example:* Imagine order values with a cluster around 100 (small pharmacies) and another around 1,000 (hospitals): two peaks.
+- **Multimodal:** A distribution with several peaks (two or more). *Example:* Days of stock with peaks at 30, 60 and 90 days.
 
 **Source:** Morettin & Bussab, Ch.3, §3.1 'Medidas de Posição' (moda, bimodal, trimodal), p.35 | Practical Statistics, Ch.1, histogram and density plot figures, pp.23-25 (peaks are read from them)
 
@@ -625,6 +757,9 @@ Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck),
 
 **Concepts:** Density scale
 
+**The concepts in plain words**
+- **Density scale:** A histogram where each bar's height is count / (total count x bin width). Then the bar areas add up to 1, and an area is the share of the values in that range. *Example:* 8 values, a bin from 1 to 3 holds 2 of them: height = 2 / (8 x 2) = 0.125, area = 0.125 x 2 = 0.25, that is 25% of the values.
+
 **Source:** Practical Statistics, Ch.1, 'Density Plots and Estimates', p.25 (y-axis as proportion; area under the curve = 1) | Morettin & Bussab, Ch.2, §2.3, p.18 (densidade de frequência fi/Δi; area = 1) and 'Problema 10', p.27 (classes of unequal width)
 
 **What the book says**
@@ -651,6 +786,10 @@ Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck),
 
 **Concepts:** Density plot; Kernel density estimate (KDE)
 
+**The concepts in plain words**
+- **Density plot:** A smooth curve version of the histogram, drawn on the density scale: the area under the whole curve is 1. *Example:* Where the curve is high there are many values per unit; where it is flat there are few.
+- **Kernel density estimate (KDE):** The usual way to draw a density plot: place a small bell curve on every value and add them all up (average them). *Example:* Three values 1, 2 and 6: three bells centred at 1, 2 and 6. The first two overlap into one hump; the third is a separate hump.
+
 **Source:** Practical Statistics, Ch.1, Key Terms p.21 and 'Density Plots and Estimates', pp.24-26 | Morettin & Bussab, Ch.2, 'Problema 12' (histograma alisado), pp.28-29
 
 **What the book says**
@@ -675,6 +814,9 @@ Chapter 1 of *Practical Statistics for Data Scientists* (Bruce, Bruce & Gedeck),
 ### F7 - Bandwidth
 
 **Concepts:** Bandwidth
+
+**The concepts in plain words**
+- **Bandwidth:** The width of each bell in a kernel density estimate: the smoothing knob. *Example:* Same values 1, 2 and 6: with a narrow bandwidth (0.3) there are 3 humps; with 1 there are 2 (1 and 2 merge); with a wide one (4) there is a single hump.
 
 **Source:** Practical Statistics, Ch.1, p.25 (bw_method controls the smoothness of the density curve) and 'Further Reading' on kernels and bandwidth, p.26
 
