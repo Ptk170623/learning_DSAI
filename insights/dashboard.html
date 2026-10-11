@@ -1,0 +1,182 @@
+<style>
+.sd{max-width:72rem;margin-inline:auto;font-family:var(--font-anthropic-sans);color:var(--color-fg);display:flex;flex-direction:column;gap:var(--cds-gap-lg)}
+.sd *{box-sizing:border-box}
+.sd h1{font-family:var(--font-anthropic-serif);font-weight:400;font-size:var(--cds-font-size-title);margin:0}
+.sd h2{font-size:var(--cds-font-size-heading);font-weight:var(--cds-font-weight-medium);margin:0}
+.sd h3{font-size:var(--cds-font-size-body);font-weight:var(--cds-font-weight-medium);margin:0}
+.sd p{margin:0}
+.sd .sub{color:var(--color-fg-muted);font-size:var(--cds-font-size-caption);line-height:1.5}
+.sd .take{font-size:var(--cds-font-size-body);line-height:1.55;margin-top:var(--cds-gap-sm);max-width:62rem}
+.sd .num{font-variant-numeric:tabular-nums;font-weight:600}
+.sd .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,10rem),1fr));gap:var(--cds-gap-md)}
+.sd .kpi{background:var(--color-panel);border:1px solid var(--color-border-line);border-radius:var(--cds-radius);padding:var(--cds-pad-lg);min-width:0}
+.sd .kpi .v{font-family:var(--font-anthropic-serif);font-size:var(--cds-font-size-title);font-variant-numeric:tabular-nums;line-height:1.15}
+.sd .kpi .l{color:var(--color-fg-muted);font-size:var(--cds-font-size-caption);margin-top:.15rem}
+.sd .kpi .d{font-size:var(--cds-font-size-caption);margin-top:.2rem;font-variant-numeric:tabular-nums}
+.sd .tabs{display:flex;gap:var(--cds-gap-xs);flex-wrap:wrap;border-bottom:1px solid var(--color-border-line)}
+.sd .tab{appearance:none;background:none;border:0;border-bottom:2px solid transparent;color:var(--color-fg-muted);font:inherit;padding:.55rem .9rem;cursor:pointer}
+.sd .tab[aria-selected=true]{color:var(--color-fg);border-bottom-color:var(--color-fg);font-weight:var(--cds-font-weight-medium)}
+.sd .tab:focus-visible{outline:2px solid var(--color-fg);outline-offset:2px}
+.sd .page{display:flex;flex-direction:column;gap:var(--cds-gap-lg)}
+.sd .page[hidden]{display:none}
+.sd .card{background:var(--color-panel);border:1px solid var(--color-border-line);border-radius:var(--cds-radius);padding:var(--cds-pad-lg);min-width:0;display:flex;flex-direction:column;gap:var(--cds-gap-sm)}
+.sd .note{color:var(--color-fg-muted);font-size:var(--cds-font-size-caption);line-height:1.5}
+.sd .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,22rem),1fr));gap:var(--cds-gap-md)}
+.sd .ctl{display:flex;flex-wrap:wrap;gap:var(--cds-gap-md);align-items:flex-end}
+.sd .ctl label{display:flex;flex-direction:column;gap:.25rem;font-size:var(--cds-font-size-caption);color:var(--color-fg-muted)}
+.sd select{max-width:100%;padding:.45rem .6rem;border-radius:var(--cds-radius);border:1px solid var(--color-border-line);background:var(--color-bg);color:var(--color-fg);font:inherit;font-size:var(--cds-font-size-body)}
+.sd .chart{position:relative;min-width:0}
+.sd .chart svg{display:block;width:100%;height:auto}
+.sd .chart text{fill:var(--color-fg-muted);font-size:11px;font-family:var(--font-anthropic-sans)}
+.sd .legend{display:flex;gap:var(--cds-gap-md);flex-wrap:wrap;color:var(--color-fg-muted);font-size:var(--cds-font-size-caption);margin-top:.25rem}
+.sd .legend i{display:inline-block;width:.7rem;height:.7rem;border-radius:3px;margin-right:.35rem;vertical-align:-1px}
+.sd .tip{position:absolute;pointer-events:none;background:var(--cds-surface-popover);border:1px solid var(--cds-border);border-radius:var(--cds-radius);box-shadow:var(--cds-shadow-popover);padding:var(--cds-pad-xs) var(--cds-pad-sm);font-size:var(--cds-font-size-caption);line-height:1.45;z-index:5;max-width:16rem;white-space:normal}
+.sd .tip .t{color:var(--cds-text-secondary)}
+.sd .tip .r{display:flex;gap:.4rem;align-items:center;font-variant-numeric:tabular-nums}
+.sd .tip .r i{display:inline-block;width:.6rem;height:.6rem;border-radius:2px}
+.sd .scroll{overflow:auto;max-height:30rem;border-radius:var(--cds-radius)}
+.sd table{border-collapse:collapse;width:100%;font-size:var(--cds-font-size-caption);font-variant-numeric:tabular-nums}
+.sd th{position:sticky;top:0;background:var(--color-panel);text-align:left;color:var(--color-fg-muted);font-weight:var(--cds-font-weight-medium);padding:.45rem .6rem;border-bottom:1px solid var(--color-border-line);white-space:nowrap}
+.sd td{padding:.45rem .6rem;border-bottom:1px solid var(--color-border-line);vertical-align:top}
+.sd td.n,.sd th.n{text-align:right;white-space:nowrap}
+.sd td.w{min-width:14rem;white-space:normal;line-height:1.45}
+.sd .sev{display:inline-block;padding:.05rem .5rem;border-radius:999px;border:1px solid var(--color-border-line);font-size:var(--cds-font-size-caption);white-space:nowrap}
+.sd .sev.High{border-color:var(--cds-chart-status-critical);color:var(--color-bad)}
+.sd .sev.Medium{border-color:var(--color-warn);color:var(--color-warn)}
+.sd .insights{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,22rem),1fr));gap:var(--cds-gap-md)}
+.sd .ins{display:flex;flex-direction:column;gap:var(--cds-gap-xs)}
+.sd .ins .f{font-size:var(--cds-font-size-body);line-height:1.5}
+.sd .ins .k{color:var(--color-fg-muted);font-size:var(--cds-font-size-caption);line-height:1.5}
+.sd .ins .k b{color:var(--color-fg);font-weight:600}
+.sd .ins button{align-self:flex-start;appearance:none;background:none;border:1px solid var(--color-border-line);border-radius:999px;color:var(--color-fg-muted);font:inherit;font-size:var(--cds-font-size-caption);padding:.15rem .7rem;cursor:pointer;margin-top:.25rem}
+.sd .ins button:hover{color:var(--color-fg);border-color:var(--color-fg-muted)}
+.sd .group{display:flex;flex-direction:column;gap:var(--cds-gap-md)}
+.sd .fail{display:flex;align-items:center;justify-content:center;gap:.4rem;color:var(--color-fg-muted);font-size:var(--cds-font-size-caption);min-height:6rem}
+.sd .fail i{width:.375rem;height:.375rem;border-radius:50%;background:var(--color-bad)}
+.sd [data-dash-source-state=empty]{color:transparent}
+.sd [data-dash-source-state=refreshing]{opacity:.5;transition:opacity var(--cds-dur-slow)}
+</style>
+<div class="sd">
+  <header>
+    <h1>Sales Data Insights</h1>
+    <p class="take" id="takeaway"><span data-source="kpis" data-row="0" data-field="last_12m_revenue">—</span> of revenue in the 12 months to <span data-source="kpis" data-row="0" data-field="last_complete_month">—</span>, <b class="num" data-source="kpis" data-row="0" data-field="change_pct">—</b> against the 12 months before, on <span data-source="kpis" data-row="0" data-field="last_12m_lines">—</span> sale lines.</p>
+    <p class="sub">Built from the project's sales, patient and doctor-panel tables. Counts, medians, spreads and shares only: no client, doctor or patient is shown. Sale data runs to <span data-source="kpis" data-row="0" data-field="last_sale_date">—</span>; the current month is left out of monthly figures because it is not complete.</p>
+  </header>
+
+  <section class="kpis" aria-label="Last 12 months">
+    <div class="kpi"><div class="v" data-source="kpis" data-row="0" data-field="last_12m_revenue">—</div><div class="l">Revenue, last 12 months</div><div class="d" data-source="kpis" data-row="0" data-field="change_pct">—</div></div>
+    <div class="kpi"><div class="v" data-source="kpis" data-row="0" data-field="last_12m_lines">—</div><div class="l">Sale lines, last 12 months</div><div class="d" data-source="kpis" data-row="0" data-field="lines_change_pct">—</div></div>
+    <div class="kpi"><div class="v" data-source="kpis" data-row="0" data-field="median_ticket">—</div><div class="l">Median sale line</div><div class="d" data-source="kpis" data-row="0" data-field="mean_ticket">—</div></div>
+    <div class="kpi"><div class="v" data-source="kpis" data-row="0" data-field="clients">—</div><div class="l">Clients who bought</div></div>
+    <div class="kpi"><div class="v" data-source="kpis" data-row="0" data-field="products">—</div><div class="l">Products sold</div></div>
+  </section>
+
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <button class="tab" role="tab" id="tab-findings" aria-selected="true" aria-controls="page-findings">Findings</button>
+    <button class="tab" role="tab" id="tab-typical" aria-selected="false" aria-controls="page-typical">A typical sale</button>
+    <button class="tab" role="tab" id="tab-variation" aria-selected="false" aria-controls="page-variation">How much it varies</button>
+    <button class="tab" role="tab" id="tab-people" aria-selected="false" aria-controls="page-people">Doctors and patients</button>
+    <button class="tab" role="tab" id="tab-health" aria-selected="false" aria-controls="page-health">Data health</button>
+  </nav>
+
+  <div class="page" id="page-findings">
+    <section class="group" id="grp-typical"><h2>A typical sale</h2><div class="insights" id="ins-typical" data-source="insights"></div></section>
+    <section class="group" id="grp-variation"><h2>How much it varies</h2><div class="insights" id="ins-variation" data-source="insights"></div></section>
+    <section class="group" id="grp-people"><h2>Doctors and patients</h2><div class="insights" id="ins-people" data-source="insights"></div></section>
+    <section class="card" id="health-summary"><h2>Data health</h2><p class="note" id="health-line" data-source="health"></p><div><button class="tab" id="to-health" style="border:1px solid var(--color-border-line);border-radius:999px;padding:.15rem .8rem;font-size:var(--cds-font-size-caption)">See the list</button></div></section>
+  </div>
+
+  <div class="page" id="page-typical" hidden>
+    <section class="card">
+      <h2>Segment</h2>
+      <p class="note">The two selectors filter the charts on this tab and on "How much it varies". Payment type was not recorded before 2021, so choose "All" to see the full history.</p>
+      <div class="ctl">
+        <label>Payment type<select id="sel-pay" aria-label="Payment type"></select></label>
+        <label>Sale type<select id="sel-st" aria-label="Sale type"></select></label>
+      </div>
+    </section>
+    <section class="card">
+      <h2 id="h-ticket">Median and mean sale line, by year</h2>
+      <p class="note">The median is the middle sale line; the mean is the total divided by the number of lines. When they drift apart, a few very large lines are pulling the mean. The last year is partial.</p>
+      <div class="chart" id="ch-ticket" data-source="yearly"></div>
+      <div class="legend" id="lg-ticket"></div>
+    </section>
+    <div class="grid2">
+      <section class="card"><h2>Revenue by year</h2><p class="note">Total revenue of the selected segment. The last year is partial.</p><div class="chart" id="ch-rev" data-source="yearly"></div></section>
+      <section class="card"><h2>Sale lines by year</h2><p class="note">Number of lines, to read next to revenue.</p><div class="chart" id="ch-lines" data-source="yearly"></div></section>
+    </div>
+    <section class="card">
+      <h2>Where the money is</h2>
+      <p class="note">Last 12 months. Each line shows the share of revenue made by the top share of products, clients or sale lines, ranked by revenue. The further a line bows up and left, the more concentrated.</p>
+      <div class="chart" id="ch-conc" data-source="concentration"></div>
+      <div class="legend" id="lg-conc"></div>
+    </section>
+    <section class="card">
+      <h2>Top 15 products, last 12 months</h2>
+      <p class="note">Interquartile range (IQR) over median: how wide the middle half of the sale lines is, relative to the typical line. Weighted price is revenue divided by units; the plain mean averages each line's price per unit.</p>
+      <div class="scroll"><table id="tb-products" data-source="products" data-row-key="rank">
+        <thead><tr><th data-field="rank" class="n">#</th><th data-field="product">Product</th><th data-field="share_pct" class="n">Share of revenue</th><th data-field="median_ticket" class="n">Median line</th><th data-field="mean_ticket" class="n">Mean line</th><th data-field="iqr_over_median_pct" class="n">IQR / median</th><th data-field="price_weighted" class="n">Weighted price</th><th data-field="price_plain_mean" class="n">Plain mean price</th><th data-field="change_pct" class="n">Revenue vs prior 12 months</th></tr></thead><tbody></tbody>
+      </table></div>
+    </section>
+  </div>
+
+  <div class="page" id="page-variation" hidden>
+    <section class="card">
+      <h2>Monthly revenue</h2>
+      <p class="note" id="nt-month">Uses the segment chosen on "A typical sale". The dashed lines show the median month and a typical swing (one robust spread, the median absolute deviation scaled to a standard deviation) around it.</p>
+      <div class="chart" id="ch-month" data-source="monthly"></div>
+      <div class="legend" id="lg-month"></div>
+    </section>
+    <section class="card">
+      <h2>Do fixed bands fit? Last 24 months against the 12 months before each</h2>
+      <p class="note">Each bar is the month's revenue against the average of the 12 previous months. The app's NEUTRAL band is a fixed ±10%. A ring marks the months that are unusual judged against the spread of the history itself (more than 2 robust spreads from the median).</p>
+      <div class="chart" id="ch-bands" data-source="bands"></div>
+      <div class="legend" id="lg-bands"></div>
+      <p class="note" id="nt-bands"></p>
+    </section>
+    <div class="grid2">
+      <section class="card">
+        <h2>Which segments swing the most</h2>
+        <p class="note">Monthly revenue over the last 24 months: coefficient of variation (standard deviation as a share of the mean). Top 15 blocks by revenue.</p>
+        <div class="chart" id="ch-vol" data-source="volatility"></div>
+      </section>
+      <section class="card">
+        <h2>Seasonal rhythm</h2>
+        <p class="note">Each calendar month against the yearly trend (100% = on trend), typical value over the years; the line shows the lowest to highest year.</p>
+        <div class="chart" id="ch-seas" data-source="seasonality"></div>
+      </section>
+    </div>
+  </div>
+
+  <div class="page" id="page-people" hidden>
+    <div class="grid2">
+      <section class="card"><h2>Days since the last visit</h2><p class="note">Share of the doctors in the panel by time since their last recorded visit.</p><div class="chart" id="ch-vb" data-source="visit_buckets"></div></section>
+      <section class="card">
+        <h2>Typical wait by group</h2>
+        <p class="note">Median days since the last visit; the line runs from the first to the third quartile. Groups with at least 40 doctors with a recorded visit. The dashed line is 90 days.</p>
+        <div class="ctl"><label>Group by<select id="sel-vk" aria-label="Group by"></select></label></div>
+        <div class="chart" id="ch-vg" data-source="visit_groups"></div>
+      </section>
+    </div>
+    <section class="card">
+      <h2>Churn by payment type and sale type</h2>
+      <p class="note">Share of patient lines flagged as churn in the data, for sales since 2024 (lines flagged as a suspicious dose are left out). Older sales are left out because the flag is rarely set for them. A group at 0% has no churn flagged in the data.</p>
+      <div class="chart" id="ch-churn" data-source="churn"></div>
+    </section>
+  </div>
+
+  <div class="page" id="page-health" hidden>
+    <section class="card">
+      <h2>What could mislead an analysis</h2>
+      <p class="note">Checked on the loaded tables. Severity says how much it can distort a result.</p>
+      <div class="scroll"><table id="tb-health" data-source="health" data-row-key="column,finding">
+        <thead><tr><th data-field="severity">Severity</th><th data-field="table">Table</th><th data-field="column">Column</th><th data-field="finding">What was found</th><th data-field="why">Why it matters</th><th data-field="action">What to do</th></tr></thead><tbody></tbody>
+      </table></div>
+    </section>
+    <section class="card">
+      <h2>Columns with many empty cells</h2>
+      <p class="note">Share of empty cells, for columns where at least 5% are empty.</p>
+      <div class="chart" id="ch-empty" data-source="empty_cells"></div>
+    </section>
+  </div>
+</div>

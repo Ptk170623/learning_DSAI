@@ -92,4 +92,5 @@ policies. Never commit real credentials.
   `clear_cache()`).
 - `data_app_gestao.py` — the Streamlit UI (3 pages).
 - `learning/` — study notes, one file per part.
+- `insights/` — analyses that use what was learned, built into a report artifact (see its README).
 - `requirements.txt`, `.env.example`.

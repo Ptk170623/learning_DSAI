@@ -17,3 +17,5 @@ __pycache__/
 # .env.example and CAMINHO_ENV in anonymize_data.py) - this line is just a
 # safety net in case a .env ever ends up here too.
 .env
+
+insights/out/
