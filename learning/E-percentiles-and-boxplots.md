@@ -1,6 +1,6 @@
 # Part E - Percentiles and boxplots
 
-**Status:** concepts mapped; not learned yet with the chat-based method.
+**Status:** in progress. Started on 2026-10-11 in its own study session; parts A to D come before it and are already learned.
 
 **Books:** Practical Statistics for Data Scientists, Ch.1 'Estimates Based on Percentiles' and box 'Percentile: Precise Definition', pp.16-17; 'Percentiles and Boxplots', pp.20-21; Key Ideas, p.26. Morettin & Bussab, Ch.3 §3.3, pp.41-43, and §3.4 'Box Plots', pp.47-50.
 
@@ -35,5 +35,11 @@ Reviews are set once the part is understood: 1 day, 7 days and 30 days after. Fi
 -
 
 ## Applied in the project (decided with the teacher)
+
+-
+
+## Study log
+
+One line per study session: the date, the concepts covered, and what is still shaky. Update the 'Understood on' column above as each concept is understood.
 
 -

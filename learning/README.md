@@ -9,11 +9,11 @@ One file per part of the study plan. Each file has:
 
 | Part | File | Status |
 |---|---|---|
-| A | [Data types](A-data-types.md) | mapped, not learned yet |
-| B | [Rectangular data and tidy data](B-rectangular-and-tidy-data.md) | mapped, not learned yet |
-| C | [Estimates of location](C-estimates-of-location.md) | mapped, not learned yet |
-| D | [Estimates of variability](D-estimates-of-variability.md) | mapped, not learned yet |
-| E | [Percentiles and boxplots](E-percentiles-and-boxplots.md) | mapped, not learned yet |
+| A | [Data types](A-data-types.md) | learned before (flashcards), review pending |
+| B | [Rectangular data and tidy data](B-rectangular-and-tidy-data.md) | learned before (flashcards), review pending |
+| C | [Estimates of location](C-estimates-of-location.md) | learned before (flashcards), review pending |
+| D | [Estimates of variability](D-estimates-of-variability.md) | learned before (flashcards), review pending |
+| E | [Percentiles and boxplots](E-percentiles-and-boxplots.md) | **in progress** (started 2026-10-11) |
 | F | [Histograms and density](F-histograms-and-density.md) | mapped, not learned yet |
 
 ## How a part is studied
